@@ -73,6 +73,20 @@ build/
     live.html       QR rooms, remote, audience sync
 ```
 
+### A deck that predates the pipeline
+
+Older decks are a finished `index.html` with no `build/` to rebuild from. For those, splice the
+live layer into the bundle instead:
+
+```bash
+python build/inject_live.py ../old-deck/index.html build/parts/live.html -o out.html
+```
+
+It patches the fragment handling, adds the `__amEntry` capture the live layer needs, stamps a
+build id, and leaves the slides alone.
+
+### Authoring
+
 Edit `parts/slides.html` and `parts/mv.html`, then:
 
 ```bash
