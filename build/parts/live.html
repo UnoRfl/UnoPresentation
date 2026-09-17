@@ -1,0 +1,888 @@
+<!-- ── Live sync ──────────────────────────────────────────────────────────────
+     Turns the deck into a room. The laptop on the projector is the STAGE; it
+     owns the current slide and hands out two links as QR codes: a public one
+     for the audience and a private one for the presenter's own phone, which
+     becomes a REMOTE with speaker notes, a timer and next/prev.
+
+     Everything rides on one Supabase Realtime broadcast channel, spoken
+     directly over a WebSocket -- no client library, so the deck stays a single
+     self-contained file. If the socket never comes up the deck still works
+     exactly as it did before; sync is strictly additive.
+
+     Roles are chosen by the URL fragment:
+       #live          this tab is the stage
+       #ctl=CODE.TOKEN  this tab is the presenter's remote (token authorises it)
+       #join=CODE       this tab is an audience phone
+     A trailing /N carries the slide number so a link is still shareable. -->
+<script>
+(function () {
+'use strict';
+
+var CFG = {
+  ws:  'wss://wbmzoscwlaanwtiloufs.supabase.co/realtime/v1/websocket',
+  key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndibXpvc2N3bGFhbnd0aWxvdWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1NzI1MzgsImV4cCI6MjEwNTE0ODUzOH0.4tyil0h-VK4Ezg26XtZQhuxvHIrKewrMYTmqt3CaQ6o'
+};
+
+/* Codes people read off a projector: no I, O, 0 or 1. */
+var ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function randCode(n) {
+  var a = new Uint8Array(n); crypto.getRandomValues(a);
+  var s = ''; for (var i = 0; i < n; i++) s += ALPHABET[a[i] % ALPHABET.length];
+  return s;
+}
+
+/* ══ QR ═══════════════════════════════════════════════════════════════════
+   Byte mode, ECC level M, versions 1-10. Verified byte-for-byte against a
+   reference encoder on all eight masks and round-tripped through an
+   independent decoder, so what goes on screen is what a phone reads. */
+function qrMatrix(text) {
+  var EXP = new Uint8Array(512), LOG = new Uint8Array(256), i, j, x;
+  for (i = 0, x = 1; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11d; }
+  for (i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  function mul(a, b) { return (a && b) ? EXP[LOG[a] + LOG[b]] : 0; }
+
+  function gen(n) {                       // highest degree first, leading 1 at g[0]
+    var g = [1], k, ng;
+    for (k = 0; k < n; k++) {
+      ng = new Array(g.length + 1); for (j = 0; j < ng.length; j++) ng[j] = 0;
+      for (j = 0; j < g.length; j++) { ng[j] ^= g[j]; ng[j + 1] ^= mul(g[j], EXP[k]); }
+      g = ng;
+    }
+    return g;
+  }
+  function ecc(data, n) {
+    var g = gen(n), r = [], k, f;
+    for (k = 0; k < n; k++) r.push(0);
+    for (k = 0; k < data.length; k++) {
+      f = data[k] ^ r[0]; r.shift(); r.push(0);
+      if (f) for (j = 0; j < n; j++) r[j] ^= mul(g[j + 1], f);
+    }
+    return r;
+  }
+
+  var VER = { 1:[16,10,1,16,0,0], 2:[28,16,1,28,0,0], 3:[44,26,1,44,0,0],
+              4:[64,18,2,32,0,0], 5:[86,24,2,43,0,0], 6:[108,16,4,27,0,0],
+              7:[124,18,4,31,0,0], 8:[154,22,2,38,2,39], 9:[182,22,3,36,2,37],
+              10:[216,26,4,43,1,44] };
+  var ALIGN = { 1:[], 2:[6,18], 3:[6,22], 4:[6,26], 5:[6,30], 6:[6,34],
+                7:[6,22,38], 8:[6,24,42], 9:[6,26,46], 10:[6,28,50] };
+
+  var bytes = new TextEncoder().encode(text), ver = 0, v;
+  for (v = 1; v <= 10; v++) if (bytes.length <= VER[v][0] - 2 - (v >= 10 ? 1 : 0)) { ver = v; break; }
+  if (!ver) throw new Error('QR: too long');
+  var totalData = VER[ver][0], ecPer = VER[ver][1],
+      g1 = VER[ver][2], d1 = VER[ver][3], g2 = VER[ver][4], d2 = VER[ver][5],
+      size = 17 + ver * 4;
+
+  var bits = [];
+  function push(val, len) { for (var k = len - 1; k >= 0; k--) bits.push((val >> k) & 1); }
+  push(4, 4); push(bytes.length, ver >= 10 ? 16 : 8);
+  for (i = 0; i < bytes.length; i++) push(bytes[i], 8);
+  for (i = 0; i < 4 && bits.length < totalData * 8; i++) bits.push(0);
+  while (bits.length % 8) bits.push(0);
+  var data = [], b;
+  for (i = 0; i < bits.length; i += 8) { b = 0; for (j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; data.push(b); }
+  for (i = 0; data.length < totalData; i++) data.push(i % 2 ? 0x11 : 0xEC);
+
+  var blocks = [], ecs = [], at = 0, blk;
+  for (i = 0; i < g1; i++) { blk = data.slice(at, at + d1); at += d1; blocks.push(blk); ecs.push(ecc(blk, ecPer)); }
+  for (i = 0; i < g2; i++) { blk = data.slice(at, at + d2); at += d2; blocks.push(blk); ecs.push(ecc(blk, ecPer)); }
+  var out = [];
+  for (i = 0; i < Math.max(d1, d2); i++) for (j = 0; j < blocks.length; j++) if (i < blocks[j].length) out.push(blocks[j][i]);
+  for (i = 0; i < ecPer; i++) for (j = 0; j < ecs.length; j++) out.push(ecs[j][i]);
+
+  var m = [], fixed = [];
+  for (i = 0; i < size; i++) { m.push(new Uint8Array(size)); fixed.push(new Uint8Array(size)); }
+  function set(r, c, val) { m[r][c] = val; fixed[r][c] = 1; }
+
+  [[0,0],[0,size-7],[size-7,0]].forEach(function (p) {
+    for (var r = -1; r <= 7; r++) for (var c = -1; c <= 7; c++) {
+      var r1 = p[0] + r, c1 = p[1] + c;
+      if (r1 < 0 || c1 < 0 || r1 >= size || c1 >= size) continue;
+      var on = (r >= 0 && r <= 6 && (c === 0 || c === 6)) ||
+               (c >= 0 && c <= 6 && (r === 0 || r === 6)) ||
+               (r >= 2 && r <= 4 && c >= 2 && c <= 4);
+      set(r1, c1, on ? 1 : 0);
+    }
+  });
+  for (i = 8; i < size - 8; i++) { set(6, i, i % 2 ? 0 : 1); set(i, 6, i % 2 ? 0 : 1); }
+  ALIGN[ver].forEach(function (r0) {
+    ALIGN[ver].forEach(function (c0) {
+      if ((r0 < 8 && c0 < 8) || (r0 < 8 && c0 > size - 9) || (r0 > size - 9 && c0 < 8)) return;
+      for (var r = -2; r <= 2; r++) for (var c = -2; c <= 2; c++)
+        set(r0 + r, c0 + c, (Math.abs(r) === 2 || Math.abs(c) === 2 || (r === 0 && c === 0)) ? 1 : 0);
+    });
+  });
+  set(size - 8, 8, 1);
+  for (i = 0; i < 9; i++) { if (!fixed[8][i]) set(8, i, 0); if (!fixed[i][8]) set(i, 8, 0); }
+  for (i = 0; i < 8; i++) {
+    if (!fixed[8][size - 1 - i]) set(8, size - 1 - i, 0);
+    if (!fixed[size - 1 - i][8]) set(size - 1 - i, 8, 0);
+  }
+  if (ver >= 7) {
+    var rem = ver << 12;
+    for (i = 0; i < 6; i++) if (rem & (1 << (17 - i))) rem ^= 0x1f25 << (5 - i);
+    var vv = (ver << 12) | rem;
+    for (i = 0; i < 18; i++) {
+      var bit = (vv >> i) & 1, rr = Math.floor(i / 3), cc = i % 3;
+      set(size - 11 + cc, rr, bit); set(rr, size - 11 + cc, bit);
+    }
+  }
+
+  var bi = 0, up = true, col, n, row, cpair, ci;
+  for (col = size - 1; col > 0; col -= 2) {
+    if (col === 6) col--;
+    for (n = 0; n < size; n++) {
+      row = up ? size - 1 - n : n;
+      cpair = [col, col - 1];
+      for (ci = 0; ci < 2; ci++) {
+        var c = cpair[ci];
+        if (fixed[row][c]) continue;
+        m[row][c] = (bi < out.length * 8) ? (out[bi >> 3] >> (7 - (bi & 7))) & 1 : 0;
+        bi++;
+      }
+    }
+    up = !up;
+  }
+
+  var MASKS = [
+    function (r, c) { return (r + c) % 2 === 0; },
+    function (r, c) { return r % 2 === 0; },
+    function (r, c) { return c % 3 === 0; },
+    function (r, c) { return (r + c) % 3 === 0; },
+    function (r, c) { return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0; },
+    function (r, c) { return ((r * c) % 2) + ((r * c) % 3) === 0; },
+    function (r, c) { return (((r * c) % 2) + ((r * c) % 3)) % 2 === 0; },
+    function (r, c) { return (((r + c) % 2) + ((r * c) % 3)) % 2 === 0; }
+  ];
+  function score(g) {
+    var s = 0, r, c, lines = [], a, run, k;
+    for (r = 0; r < size; r++) lines.push(g[r]);
+    for (c = 0; c < size; c++) { a = new Uint8Array(size); for (r = 0; r < size; r++) a[r] = g[r][c]; lines.push(a); }
+    for (k = 0; k < lines.length; k++) {
+      run = 1;
+      for (j = 1; j < size; j++) {
+        if (lines[k][j] === lines[k][j - 1]) { run++; if (run === 5) s += 3; else if (run > 5) s++; }
+        else run = 1;
+      }
+    }
+    for (r = 0; r < size - 1; r++) for (c = 0; c < size - 1; c++)
+      if (g[r][c] === g[r][c + 1] && g[r][c] === g[r + 1][c] && g[r][c] === g[r + 1][c + 1]) s += 3;
+    var P1 = [1,0,1,1,1,0,1,0,0,0,0], P2 = [0,0,0,0,1,0,1,1,1,0,1];
+    for (k = 0; k < lines.length; k++) for (j = 0; j + 11 <= size; j++) {
+      var m1 = true, m2 = true;
+      for (var q = 0; q < 11; q++) { if (lines[k][j + q] !== P1[q]) m1 = false; if (lines[k][j + q] !== P2[q]) m2 = false; }
+      if (m1) s += 40; if (m2) s += 40;
+    }
+    var dark = 0;
+    for (r = 0; r < size; r++) for (c = 0; c < size; c++) dark += g[r][c];
+    return s + Math.floor(Math.abs(dark * 100 / (size * size) - 50) / 5) * 10;
+  }
+  function fmtWord(mask) {
+    var w = ((0 << 3) | mask) << 10, rem2 = w;
+    for (var k = 4; k >= 0; k--) if (rem2 & (1 << (k + 10))) rem2 ^= 0x537 << k;
+    return (w | rem2) ^ 0x5412;
+  }
+
+  var best = null, bestScore = Infinity;
+  for (var mk = 0; mk < 8; mk++) {
+    var g = m.map(function (r) { return Uint8Array.from(r); });
+    for (var r2 = 0; r2 < size; r2++) for (var c2 = 0; c2 < size; c2++)
+      if (!fixed[r2][c2] && MASKS[mk](r2, c2)) g[r2][c2] ^= 1;
+    var f = fmtWord(mk);
+    /* 15 bits, most significant first. */
+    for (i = 0; i < 15; i++) {
+      var fb = (f >> (14 - i)) & 1;
+      if (i < 6) g[8][i] = fb;
+      else if (i === 6) g[8][7] = fb;
+      else if (i === 7) g[8][8] = fb;
+      else if (i === 8) g[7][8] = fb;
+      else g[14 - i][8] = fb;
+      if (i < 7) g[size - 1 - i][8] = fb;
+      else g[8][size - 15 + i] = fb;
+    }
+    g[size - 8][8] = 1;
+    var sc = score(g);
+    if (sc < bestScore) { bestScore = sc; best = g; }
+  }
+  return best;
+}
+
+/* One <path> of black squares on a white card. Quiet zone is mandatory --
+   without it a phone will not lock on. */
+function qrSvg(text, px) {
+  var m = qrMatrix(text), n = m.length, q = 4, dim = n + q * 2, d = '';
+  for (var r = 0; r < n; r++) for (var c = 0; c < n; c++)
+    if (m[r][c]) d += 'M' + (c + q) + ' ' + (r + q) + 'h1v1h-1z';
+  return '<svg viewBox="0 0 ' + dim + ' ' + dim + '" width="' + px + '" height="' + px +
+         '" shape-rendering="crispEdges" role="img" aria-label="QR code">' +
+         '<rect width="' + dim + '" height="' + dim + '" fill="#fff"/>' +
+         '<path d="' + d + '" fill="#000"/></svg>';
+}
+
+/* ══ Realtime ═════════════════════════════════════════════════════════════
+   Phoenix channels over a raw WebSocket. Reconnects with backoff and
+   re-announces itself, because a phone that sleeps drops the socket and must
+   come back knowing which slide it missed. */
+function Room(code, role, onEvent, onStatus) {
+  var self = this;
+  this.code = code; this.role = role;
+  this.topic = 'realtime:deck-' + code;
+  this.id = randCode(8);
+  this.ws = null; this.ref = 0; this.joinRef = null; this.joined = false;
+  this.hb = null; this.retry = 0; this.closed = false;
+  this.peers = {};
+
+  function next() { return String(++self.ref); }
+
+  this.send = function (event, payload) {
+    if (!self.ws || self.ws.readyState !== 1 || !self.joined) return false;
+    try {
+      self.ws.send(JSON.stringify({
+        topic: self.topic, event: event, ref: next(), join_ref: self.joinRef, payload: payload
+      }));
+      return true;
+    } catch (e) { return false; }
+  };
+
+  this.cast = function (event, data) {
+    return self.send('broadcast', { type: 'broadcast', event: event, payload: data || {} });
+  };
+
+  this.connect = function () {
+    if (self.closed) return;
+    onStatus('connecting');
+    var ws;
+    try { ws = new WebSocket(CFG.ws + '?apikey=' + CFG.key + '&vsn=1.0.0'); }
+    catch (e) { onStatus('error'); return schedule(); }
+    self.ws = ws;
+
+    ws.onopen = function () {
+      self.joinRef = next();
+      ws.send(JSON.stringify({
+        topic: self.topic, event: 'phx_join', ref: self.joinRef, join_ref: self.joinRef,
+        payload: { config: {
+          broadcast: { ack: false, self: false },
+          presence: { enabled: true, key: self.id },
+          private: false
+        } }
+      }));
+    };
+
+    ws.onmessage = function (e) {
+      var msg; try { msg = JSON.parse(e.data); } catch (err) { return; }
+      if (msg.event === 'phx_reply' && msg.ref === self.joinRef) {
+        if (msg.payload && msg.payload.status === 'ok') {
+          self.joined = true; self.retry = 0;
+          onStatus('live');
+          self.send('presence', { type: 'presence', event: 'track', payload: { role: self.role } });
+          onEvent('_joined', {});
+        } else { onStatus('error'); try { ws.close(); } catch (er) {} }
+        return;
+      }
+      if (msg.event === 'broadcast' && msg.payload) {
+        onEvent(msg.payload.event, msg.payload.payload || {});
+        return;
+      }
+      if (msg.event === 'presence_state') { self.peers = msg.payload || {}; onEvent('_peers', self.peers); return; }
+      if (msg.event === 'presence_diff') {
+        var p = msg.payload || {}, k;
+        for (k in (p.joins || {})) self.peers[k] = p.joins[k];
+        for (k in (p.leaves || {})) delete self.peers[k];
+        onEvent('_peers', self.peers);
+        return;
+      }
+      if (msg.event === 'phx_error' || msg.event === 'phx_close') { try { ws.close(); } catch (er) {} }
+    };
+
+    ws.onclose = function () {
+      self.joined = false;
+      clearInterval(self.hb);
+      if (self.closed) return;
+      onStatus('offline');
+      schedule();
+    };
+    ws.onerror = function () { onStatus('error'); };
+
+    clearInterval(self.hb);
+    /* The server times a connection out at 30s; 20s leaves margin on a
+       congested school network. */
+    self.hb = setInterval(function () {
+      if (ws.readyState === 1) {
+        try { ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', ref: next(), payload: {} })); }
+        catch (e) {}
+      }
+    }, 20000);
+  };
+
+  function schedule() {
+    var wait = Math.min(1000 * Math.pow(1.7, self.retry++), 15000);
+    setTimeout(function () { self.connect(); }, wait);
+  }
+
+  this.countRole = function (r) {
+    var n = 0, k, metas;
+    for (k in self.peers) {
+      metas = self.peers[k] && self.peers[k].metas;
+      if (metas && metas.length && metas[0].role === r) n++;
+    }
+    return n;
+  };
+
+  this.close = function () { self.closed = true; clearInterval(self.hb); try { self.ws.close(); } catch (e) {} };
+}
+
+/* ══ Deck handle ══════════════════════════════════════════════════════════ */
+/* Polled with setTimeout, never requestAnimationFrame: rAF is throttled to a
+   standstill in a tab that is not visible, so an rAF poll against a wall-clock
+   budget silently never fires -- which on a phone is the difference between a
+   deck that syncs and one that does nothing at all. */
+function whenDeck(cb) {
+  var t0 = Date.now();
+  (function poll() {
+    var d = document.querySelector('deck-stage');
+    if (d && typeof d.goTo === 'function' && d.shadowRoot) return cb(d);
+    if (Date.now() - t0 < 25000) setTimeout(poll, 60);
+  })();
+}
+
+/* Two frames, but never blocking on them: in a backgrounded tab rAF may never
+   run, and a preflight that waits forever is worse than one that is early. */
+function twoFrames() {
+  return new Promise(function (resolve) {
+    var done = false;
+    function fin() { if (!done) { done = true; resolve(); } }
+    requestAnimationFrame(function () { requestAnimationFrame(fin); });
+    setTimeout(fin, 120);
+  });
+}
+function slides() { return Array.prototype.slice.call(document.querySelectorAll('deck-stage > section, x-import > section')); }
+function notesFor(i) { var s = slides()[i]; return (s && s.getAttribute('data-speaker-notes')) || ''; }
+function labelFor(i) { var s = slides()[i]; return (s && (s.getAttribute('data-label') || s.getAttribute('data-screen-label'))) || ('Slide ' + (i + 1)); }
+
+/* ══ Preflight ════════════════════════════════════════════════════════════
+   Nothing should be discovered for the first time in front of an audience.
+   Before a deck is allowed to call itself live it must have: fonts resolved,
+   every image decoded, every slide actually rendered once so the runtime has
+   built and the compositor has warmed its layers, a screen wake lock, and a
+   joined socket. The step-through happens behind an opaque cover, so the room
+   never sees it. */
+function preflight(deck, room, report) {
+  var steps = [], total = 0, done = 0;
+  function tick(label) { done++; report(done / total, label); }
+
+  return new Promise(function (resolve) {
+    var all = slides(), n = all.length;
+    total = 3 + n;
+
+    var cover = document.createElement('div');
+    cover.className = 'lv-cover';
+    cover.innerHTML = '<div class="lv-cover-in"><div class="lv-cover-t">Preparing the deck</div>' +
+                      '<div class="lv-bar"><i></i></div><div class="lv-cover-s">starting</div></div>';
+    document.body.appendChild(cover);
+    var bar = cover.querySelector('.lv-bar i'), sub = cover.querySelector('.lv-cover-s');
+    report = (function (orig) {
+      return function (f, label) { bar.style.width = Math.round(f * 100) + '%'; sub.textContent = label; orig(f, label); };
+    })(report);
+
+    /* Entrance builds are replayed on every slide change; during the warm
+       pass they would just cost time and flicker. */
+    var mute = document.createElement('style');
+    mute.textContent = '.lv-warming [data-anim]{animation:none!important;opacity:1!important;filter:none!important}';
+    document.head.appendChild(mute);
+    document.body.classList.add('lv-warming');
+
+    var startAt = 0;
+    try { startAt = deck.index || 0; } catch (e) {}
+
+    Promise.resolve()
+      .then(function () {
+        return (document.fonts && document.fonts.ready) || Promise.resolve();
+      })
+      .then(function () { tick('fonts ready'); })
+      .then(function () {
+        var imgs = Array.prototype.slice.call(document.images);
+        return Promise.all(imgs.map(function (im) {
+          return (im.decode ? im.decode() : Promise.resolve()).catch(function () {});
+        }));
+      })
+      .then(function () { tick('images decoded'); })
+      .then(function () {
+        /* Walk every slide through the real render path. Two frames each:
+           one to lay out, one to paint. */
+        return all.reduce(function (p, s, i) {
+          return p.then(function () {
+            try { deck.goTo(i); } catch (e) {}
+            return twoFrames().then(function () {
+              s.getBoundingClientRect();
+              tick('slide ' + (i + 1) + ' of ' + n);
+            });
+          });
+        }, Promise.resolve());
+      })
+      .then(function () {
+        try { deck.goTo(startAt); } catch (e) {}
+        document.body.classList.remove('lv-warming');
+        mute.remove();
+        return wakeLock();
+      })
+      .then(function () { tick('screen kept awake'); })
+      .then(function () {
+        /* Last: do not claim live until the socket has actually joined. */
+        if (room.joined) return;
+        return new Promise(function (r) {
+          var t0 = Date.now();
+          var iv = setInterval(function () {
+            if (room.joined || Date.now() - t0 > 12000) { clearInterval(iv); r(); }
+          }, 120);
+        });
+      })
+      .then(function () {
+        cover.classList.add('lv-cover-out');
+        setTimeout(function () { cover.remove(); }, 420);
+        resolve(room.joined);
+      });
+  });
+}
+
+/* A presentation must not be interrupted by a screen blanking. The lock is
+   dropped whenever the tab is hidden, so it is re-taken on return. */
+var _wl = null;
+function wakeLock() {
+  if (!navigator.wakeLock) return Promise.resolve();
+  return navigator.wakeLock.request('screen').then(function (l) {
+    _wl = l;
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && navigator.wakeLock) {
+        navigator.wakeLock.request('screen').then(function (l2) { _wl = l2; }).catch(function () {});
+      }
+    });
+  }).catch(function () {});
+}
+
+/* ══ Styles ═══════════════════════════════════════════════════════════════ */
+var CSS = [
+'.lv-cover{position:fixed;inset:0;z-index:2147483600;background:#101013;display:flex;align-items:center;justify-content:center;font-family:Arial,Helvetica,sans-serif;transition:opacity .4s ease}',
+'.lv-cover-out{opacity:0;pointer-events:none}',
+'.lv-cover-in{width:min(420px,78vw);text-align:center;color:#F3F3F1}',
+'.lv-cover-t{font-size:20px;font-weight:700;letter-spacing:.02em}',
+'.lv-bar{margin:18px 0 10px;height:3px;background:#2A2A31;border-radius:2px;overflow:hidden}',
+'.lv-bar i{display:block;height:100%;width:0;background:#E2545C;transition:width .18s ease}',
+'.lv-cover-s{font-size:13px;letter-spacing:.06em;color:#8A8A92}',
+
+'.lv-panel{position:fixed;z-index:2147483500;background:#1B1B20;color:#F3F3F1;border:1px solid #2E2E36;border-radius:14px;font-family:Arial,Helvetica,sans-serif;box-shadow:0 18px 50px rgba(0,0,0,.55)}',
+'.lv-stage-panel{right:18px;bottom:18px;width:min(340px,86vw);padding:16px}',
+'.lv-row{display:flex;align-items:center;gap:10px}',
+'.lv-h{font-size:11px;font-weight:700;letter-spacing:.22em;color:#E2545C;margin:0 0 10px}',
+'.lv-code{font-size:30px;font-weight:700;letter-spacing:.16em;line-height:1}',
+'.lv-sub{font-size:12px;color:#8A8A92;letter-spacing:.04em}',
+'.lv-qr{background:#fff;padding:7px;border-radius:9px;line-height:0;flex:none}',
+'.lv-qrs{display:flex;gap:12px;margin:12px 0 4px}',
+'.lv-qrcell{flex:1;text-align:center}',
+'.lv-qrcell .lv-sub{margin-top:6px;display:block}',
+'.lv-btn{appearance:none;border:1px solid #33333C;background:#232329;color:#F3F3F1;border-radius:8px;padding:7px 11px;font:inherit;font-size:12px;cursor:pointer}',
+'.lv-btn:hover{border-color:#4A4A55}',
+'.lv-btn[aria-pressed=true]{background:#E2545C;border-color:#E2545C;color:#fff}',
+'.lv-modes{display:flex;gap:6px;margin-top:12px}',
+'.lv-modes .lv-btn{flex:1;text-align:center;padding:7px 4px}',
+'.lv-x{position:absolute;top:10px;right:12px;background:none;border:0;color:#8A8A92;font-size:18px;cursor:pointer;line-height:1}',
+
+'.lv-dot{position:fixed;z-index:2147483550;left:14px;bottom:14px;display:flex;align-items:center;gap:7px;font:12px Arial,Helvetica,sans-serif;color:#8A8A92;background:rgba(20,20,24,.82);border:1px solid #2A2A31;border-radius:999px;padding:5px 11px 5px 9px;backdrop-filter:blur(6px)}',
+'.lv-dot i{width:7px;height:7px;border-radius:50%;background:#3C9E5A;flex:none}',
+'.lv-dot[data-s=offline] i,.lv-dot[data-s=error] i{background:#E2545C}',
+'.lv-dot[data-s=connecting] i{background:#C8A23A}',
+
+'.lv-lock{position:fixed;inset:0;z-index:2147483400;background:transparent}',
+'.lv-back{position:fixed;z-index:2147483520;left:50%;transform:translateX(-50%);bottom:18px;background:#E2545C;color:#fff;border:0;border-radius:999px;padding:11px 20px;font:700 14px Arial,Helvetica,sans-serif;cursor:pointer;box-shadow:0 10px 30px rgba(226,84,92,.35)}',
+
+'.lv-laser{position:fixed;z-index:2147483450;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(255,80,90,.95) 0%,rgba(255,60,70,.55) 38%,rgba(255,60,70,0) 70%);display:none}',
+
+'.lv-remote{position:fixed;inset:0;z-index:2147483580;background:#131316;color:#F3F3F1;font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column;overflow:hidden}',
+'.lv-rtop{padding:14px 16px 10px;border-bottom:1px solid #26262D;display:flex;align-items:baseline;gap:12px}',
+'.lv-rtime{font-size:26px;font-weight:700;letter-spacing:.02em;font-variant-numeric:tabular-nums}',
+'.lv-rpos{font-size:12px;color:#8A8A92;letter-spacing:.1em;margin-left:auto}',
+'.lv-rbody{flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch}',
+'.lv-rlabel{font-size:11px;font-weight:700;letter-spacing:.2em;color:#E2545C}',
+'.lv-rnotes{margin:10px 0 0;font-size:19px;line-height:1.55;color:#EDEDEA;white-space:pre-wrap}',
+'.lv-rnext{margin-top:22px;padding-top:14px;border-top:1px solid #26262D;font-size:14px;color:#8A8A92;line-height:1.5}',
+'.lv-rpad{display:flex;gap:10px;padding:12px 14px calc(14px + env(safe-area-inset-bottom));border-top:1px solid #26262D;background:#17171B}',
+'.lv-rpad button{flex:1;appearance:none;border:1px solid #33333C;background:#232329;color:#F3F3F1;border-radius:12px;padding:20px 0;font:700 17px Arial,Helvetica,sans-serif;cursor:pointer;touch-action:manipulation;-webkit-user-select:none;user-select:none}',
+'.lv-rpad button:active{background:#E2545C;border-color:#E2545C}',
+'.lv-rpad .lv-rnextbtn{flex:1.7}',
+'.lv-rtrack{aspect-ratio:16/9;margin-top:16px;border:1px dashed #33333C;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#55555F;font-size:12px;letter-spacing:.08em;touch-action:none}',
+'.lv-rtrack.on{border-color:#E2545C;color:#E2545C}',
+'.lv-react{display:flex;gap:8px;margin-top:14px}',
+'.lv-react button{flex:1;appearance:none;border:1px solid #33333C;background:#1D1D22;color:#B9B9C0;border-radius:10px;padding:12px 0;font:13px Arial,Helvetica,sans-serif;cursor:pointer}',
+'.lv-flag{display:inline-flex;align-items:center;gap:6px;background:#2A1F22;border:1px solid #5C3238;color:#E2545C;border-radius:999px;padding:4px 10px;font-size:12px;margin-left:8px}'
+].join('\n');
+
+function injectCss() { var s = document.createElement('style'); s.textContent = CSS; document.head.appendChild(s); }
+
+/* ══ Hash ═════════════════════════════════════════════════════════════════
+   The deck already writes #N so a slide can be linked. When live, the role
+   prefix has to survive that, so live.html owns the format and tail.html
+   defers to it. */
+var hashPrefix = null;
+window.__liveHash = {
+  fmt: function (n) { return hashPrefix ? '#' + hashPrefix + '/' + n : '#' + n; },
+  parse: function () { return this.parseFrom(location.hash); },
+  /* Reads a slide number out of either scheme, so the entry the loader
+     captured works whether or not the link was a live one. */
+  parseFrom: function (h) {
+    if (h == null) return NaN;
+    h = String(h).replace(/^#/, '');
+    var m = /\/(\d+)\s*$/.exec(h);
+    if (m) return parseInt(m[1], 10);
+    return /^\d+$/.test(h) ? parseInt(h, 10) : NaN;
+  }
+};
+/* deck-stage rewrites location.hash to #<slide> during its own init, before
+   anything here runs, so the fragment the user actually arrived on is the one
+   the loader captured. `#r<n>` is already the reading view's, hence ctl=/join=
+   rather than anything shorter. */
+function readRole() {
+  var h = (window.__amEntry != null ? window.__amEntry : location.hash.replace(/^#/, ''));
+  var m;
+  if (/^live(\/|$)/.test(h)) return { role: 'stage' };
+  if ((m = /^ctl=([A-Z0-9]+)\.([A-Za-z0-9]+)/.exec(h))) return { role: 'remote', code: m[1], tok: m[2] };
+  if ((m = /^join=([A-Z0-9]+)/.exec(h))) return { role: 'audience', code: m[1] };
+  return null;
+}
+
+function statusDot() {
+  var d = document.createElement('div');
+  d.className = 'lv-dot'; d.setAttribute('data-s', 'connecting');
+  d.innerHTML = '<i></i><span>connecting</span>';
+  document.body.appendChild(d);
+  return { el: d, set: function (s, text) { d.setAttribute('data-s', s); d.querySelector('span').textContent = text || s; } };
+}
+
+/* ══ Stage ════════════════════════════════════════════════════════════════ */
+function runStage(deck) {
+  var code = randCode(4), tok = randCode(16);
+  hashPrefix = 'live';
+  var state = { i: 0, n: slides().length, mode: 'follow', max: 0, t0: Date.now(), blank: false };
+  var reacts = {};                                  // id -> timestamp of last "lost"
+
+  var dot = statusDot();
+  var room = new Room(code, 'stage', onEvent, function (s) {
+    dot.set(s, s === 'live' ? (code + ' · ' + room.countRole('audience') + ' joined') : s);
+  });
+  room.connect();
+
+  var base = location.origin + location.pathname;
+  var joinUrl = base + '#join=' + code;
+  var remoteUrl = base + '#ctl=' + code + '.' + tok;
+
+  var laser = document.createElement('div'); laser.className = 'lv-laser';
+  document.body.appendChild(laser);
+
+  var panel = document.createElement('div');
+  panel.className = 'lv-panel lv-stage-panel';
+  panel.innerHTML =
+    '<button class="lv-x" aria-label="Hide">&times;</button>' +
+    '<p class="lv-h">LIVE</p>' +
+    '<div class="lv-row"><span class="lv-code">' + code + '</span></div>' +
+    '<div class="lv-qrs">' +
+      '<div class="lv-qrcell"><div class="lv-qr">' + qrSvg(joinUrl, 118) + '</div><span class="lv-sub">Audience</span></div>' +
+      '<div class="lv-qrcell"><div class="lv-qr">' + qrSvg(remoteUrl, 118) + '</div><span class="lv-sub">My phone</span></div>' +
+    '</div>' +
+    '<div class="lv-modes" role="group" aria-label="Audience mode">' +
+      '<button class="lv-btn" data-mode="lock">Locked</button>' +
+      '<button class="lv-btn" data-mode="follow">Follow</button>' +
+      '<button class="lv-btn" data-mode="open">Open</button>' +
+    '</div>' +
+    '<div class="lv-row" style="margin-top:10px"><span class="lv-sub lv-count">0 phones</span>' +
+      '<span class="lv-sub lv-lost" style="margin-left:auto"></span></div>';
+  document.body.appendChild(panel);
+  panel.dataset.join = joinUrl;
+  panel.dataset.remote = remoteUrl;
+
+  /* Not every room can scan a projector cleanly, and the audience link is
+     often easier pasted into the class group chat. Tapping a code copies it. */
+  var cells = panel.querySelectorAll('.lv-qrcell');
+  [[cells[0], joinUrl], [cells[1], remoteUrl]].forEach(function (pair) {
+    pair[0].style.cursor = 'pointer';
+    pair[0].title = 'Copy link';
+    pair[0].addEventListener('click', function () {
+      var note = pair[0].querySelector('.lv-sub'), was = note.textContent;
+      function done() { note.textContent = 'copied'; setTimeout(function () { note.textContent = was; }, 1600); }
+      if (navigator.clipboard) navigator.clipboard.writeText(pair[1]).then(done, function () {});
+      else done();
+    });
+  });
+
+  panel.querySelector('.lv-x').addEventListener('click', function () { panel.style.display = 'none'; });
+  Array.prototype.forEach.call(panel.querySelectorAll('[data-mode]'), function (b) {
+    b.addEventListener('click', function () { state.mode = b.getAttribute('data-mode'); paintModes(); cast(); });
+  });
+  function paintModes() {
+    Array.prototype.forEach.call(panel.querySelectorAll('[data-mode]'), function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-mode') === state.mode));
+    });
+  }
+  paintModes();
+
+  /* Preflight walks every slide to warm it. Those are not presenter moves,
+     so nothing is broadcast until the deck is actually ready. */
+  var warming = true;
+
+  function cast() {
+    if (warming) return;
+    state.max = Math.max(state.max, state.i);
+    room.cast('state', state);
+  }
+
+  document.addEventListener('slidechange', function (e) {
+    state.i = (e.detail && e.detail.index) || 0;
+    state.n = slides().length;
+    cast();
+  });
+
+  function onEvent(ev, p) {
+    if (ev === 'hello') { cast(); return; }
+    if (ev === '_joined') { cast(); return; }
+    if (ev === '_peers') {
+      var a = room.countRole('audience');
+      panel.querySelector('.lv-count').textContent = a + (a === 1 ? ' phone' : ' phones');
+      dot.set('live', code + ' · ' + a + ' joined');
+      return;
+    }
+    if (ev === 'cmd') {
+      if (p.tok !== tok) return;                    // only the paired phone drives
+      if (p.k === 'next') deck.next();
+      else if (p.k === 'prev') deck.prev();
+      else if (p.k === 'goto' && typeof p.i === 'number') deck.goTo(p.i);
+      else if (p.k === 'blank') { state.blank = !state.blank; document.body.style.visibility = state.blank ? 'hidden' : ''; cast(); }
+      return;
+    }
+    if (ev === 'ptr') {
+      if (p.tok !== tok) return;
+      if (!p.on) { laser.style.display = 'none'; return; }
+      /* The slide is a letterboxed 1920x1080 artboard, not the viewport, so
+         the dot is placed inside the slide's own rect -- otherwise pointing
+         at a word on the phone lands somewhere else on the projector. */
+      var s = slides()[state.i], r = s && s.getBoundingClientRect();
+      if (!r || !r.width) { laser.style.display = 'none'; return; }
+      laser.style.display = 'block';
+      laser.style.left = (r.left + p.x * r.width) + 'px';
+      laser.style.top = (r.top + p.y * r.height) + 'px';
+      return;
+    }
+    if (ev === 'react') {
+      if (p.k === 'lost') { reacts[p.id] = Date.now(); paintLost(); }
+      return;
+    }
+  }
+
+  /* "I'm lost" decays: a count that never falls is noise, not a signal. */
+  function paintLost() {
+    var now = Date.now(), n = 0, k;
+    for (k in reacts) { if (now - reacts[k] < 45000) n++; else delete reacts[k]; }
+    panel.querySelector('.lv-lost').textContent = n ? ('⚑ ' + n + ' lost') : '';
+  }
+  setInterval(paintLost, 5000);
+
+  preflight(deck, room, function () {}).then(function (ok) {
+    warming = false;
+    try { state.i = deck.index || 0; } catch (e) {}
+    state.t0 = Date.now();                       // the clock starts when ready
+    dot.set(ok ? 'live' : 'offline', ok ? (code + ' · 0 joined') : 'offline — deck still works');
+    cast();
+  });
+
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'l' || e.key === 'L') panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  });
+}
+
+/* ══ Remote ═══════════════════════════════════════════════════════════════ */
+function runRemote(code, tok) {
+  hashPrefix = 'ctl=' + code + '.' + tok;
+  var st = { i: 0, n: 0, t0: Date.now(), mode: 'follow' };
+
+  var ui = document.createElement('div');
+  ui.className = 'lv-remote';
+  ui.innerHTML =
+    '<div class="lv-rtop"><span class="lv-rtime">0:00</span><span class="lv-sub lv-rstatus">connecting</span>' +
+      '<span class="lv-rpos">— / —</span></div>' +
+    '<div class="lv-rbody">' +
+      '<p class="lv-rlabel"></p>' +
+      '<p class="lv-rnotes"></p>' +
+      '<div class="lv-rtrack">drag here to point</div>' +
+      '<div class="lv-rnext"></div>' +
+    '</div>' +
+    '<div class="lv-rpad">' +
+      '<button class="lv-rprev">Back</button>' +
+      '<button class="lv-rblank">Blank</button>' +
+      '<button class="lv-rnextbtn">Next</button>' +
+    '</div>';
+  document.body.appendChild(ui);
+  document.body.style.overflow = 'hidden';
+
+  var q = function (s) { return ui.querySelector(s); };
+  var room = new Room(code, 'remote', onEvent, function (s) { q('.lv-rstatus').textContent = s; });
+  room.connect();
+  wakeLock();
+
+  function cmd(k, i) { room.cast('cmd', { k: k, i: i, tok: tok }); }
+  q('.lv-rprev').addEventListener('click', function () { cmd('prev'); });
+  q('.lv-rnextbtn').addEventListener('click', function () { cmd('next'); });
+  q('.lv-rblank').addEventListener('click', function () { cmd('blank'); });
+
+  /* Pointer pad: normalised coordinates so the dot lands in the same place
+     whatever the projector's aspect ratio. */
+  var pad = q('.lv-rtrack');
+  function pt(e, on) {
+    var r = pad.getBoundingClientRect();
+    var t = e.touches && e.touches[0] ? e.touches[0] : e;
+    room.cast('ptr', { on: on, tok: tok,
+      x: Math.min(1, Math.max(0, (t.clientX - r.left) / r.width)),
+      y: Math.min(1, Math.max(0, (t.clientY - r.top) / r.height)) });
+  }
+  ['touchstart', 'touchmove'].forEach(function (ev) {
+    pad.addEventListener(ev, function (e) { e.preventDefault(); pad.classList.add('on'); pt(e, true); }, { passive: false });
+  });
+  ['touchend', 'touchcancel'].forEach(function (ev) {
+    pad.addEventListener(ev, function () { pad.classList.remove('on'); room.cast('ptr', { on: false, tok: tok }); });
+  });
+
+  function onEvent(ev, p) {
+    if (ev === '_joined') { room.cast('hello', {}); return; }
+    if (ev !== 'state') return;
+    st = p;
+    q('.lv-rpos').textContent = (p.i + 1) + ' / ' + p.n;
+    q('.lv-rlabel').textContent = labelFor(p.i);
+    q('.lv-rnotes').textContent = notesFor(p.i) || 'No notes on this slide.';
+    q('.lv-rnext').textContent = (p.i + 1 < p.n) ? ('NEXT · ' + labelFor(p.i + 1)) : 'Last slide.';
+  }
+
+  setInterval(function () {
+    if (!st.t0) return;
+    var s = Math.max(0, Math.floor((Date.now() - st.t0) / 1000));
+    q('.lv-rtime').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }, 500);
+}
+
+/* ══ Audience ═════════════════════════════════════════════════════════════ */
+function runAudience(deck, code) {
+  hashPrefix = 'join=' + code;
+  var mode = 'follow', live = 0, following = true, maxSeen = 0;
+  /* Slide changes this code causes -- the preflight walk, and following the
+     stage -- must not read as the viewer deliberately breaking away. */
+  var warming = true, programmatic = 0;
+  var dot = statusDot();
+  var room = new Room(code, 'audience', onEvent, function (s) { dot.set(s, s === 'live' ? 'following' : s); });
+  room.connect();
+  wakeLock();
+
+  var lockLayer = null, backBtn = null;
+
+  /* The reading view is the readable one on a phone, so a synced audience is
+     pinned to the card for the live slide rather than a shrunken artboard.
+     Cards are matched by data-slide when the deck provides it, else by order. */
+  function mvCards() { return Array.prototype.slice.call(document.querySelectorAll('#mv .mv-card')); }
+  function pinReading(i) {
+    var cards = mvCards();
+    if (!cards.length) return;
+    var target = null;
+    for (var k = 0; k < cards.length; k++) if (String(cards[k].getAttribute('data-slide')) === String(i)) target = cards[k];
+    if (!target && cards.length === slides().length) target = cards[i];
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function applyLock() {
+    var want = (mode === 'lock');
+    if (want && !lockLayer) {
+      lockLayer = document.createElement('div'); lockLayer.className = 'lv-lock';
+      /* Swallow everything the deck would treat as navigation. */
+      ['click', 'touchstart', 'touchend', 'pointerdown'].forEach(function (ev) {
+        lockLayer.addEventListener(ev, function (e) { e.stopPropagation(); e.preventDefault(); }, true);
+      });
+      document.body.appendChild(lockLayer);
+    } else if (!want && lockLayer) { lockLayer.remove(); lockLayer = null; }
+  }
+
+  function showBack(on) {
+    if (on && !backBtn) {
+      backBtn = document.createElement('button');
+      backBtn.className = 'lv-back'; backBtn.textContent = '● Back to live';
+      backBtn.addEventListener('click', function () { following = true; go(live); showBack(false); });
+      document.body.appendChild(backBtn);
+    } else if (!on && backBtn) { backBtn.remove(); backBtn = null; }
+  }
+
+  function go(i) {
+    programmatic++;
+    try { deck.goTo(i); } catch (e) {}
+    setTimeout(function () { programmatic--; }, 120);
+    if (document.body.classList.contains('mv-on')) pinReading(i);
+  }
+
+  function onEvent(ev, p) {
+    if (ev === '_joined') { room.cast('hello', {}); return; }
+    if (ev !== 'state') return;
+    live = p.i; maxSeen = Math.max(maxSeen, p.max || p.i);
+    if (p.mode !== mode) { mode = p.mode; applyLock(); }
+    if (mode === 'open') { showBack(false); return; }
+    if (following || mode === 'lock') go(live);
+    else showBack(true);
+    dot.set('live', 'slide ' + (p.i + 1) + ' / ' + p.n);
+  }
+
+  /* A swipe or tap while in follow mode is a deliberate break-away. */
+  document.addEventListener('slidechange', function (e) {
+    var i = (e.detail && e.detail.index) || 0;
+    if (warming || programmatic) return;
+    if (mode === 'lock' || mode === 'open') return;
+    if (i !== live) { following = false; showBack(true); }
+  });
+
+  var react = document.createElement('div');
+  react.className = 'lv-panel';
+  react.style.cssText = 'left:14px;right:14px;bottom:56px;padding:10px;display:none';
+  react.innerHTML = '<div class="lv-react"><button data-k="lost">I\'m lost</button></div>';
+  document.body.appendChild(react);
+  react.querySelector('[data-k=lost]').addEventListener('click', function () {
+    room.cast('react', { k: 'lost', id: room.id });
+    react.querySelector('[data-k=lost]').textContent = 'Sent';
+    setTimeout(function () { react.querySelector('[data-k=lost]').textContent = "I'm lost"; }, 4000);
+  });
+  dot.el.addEventListener('click', function () { react.style.display = react.style.display === 'none' ? '' : 'none'; });
+
+  /* Same preflight as the stage: a phone that joins mid-talk should not
+     stutter through its first few slides. */
+  preflight(deck, room, function () {}).then(function () {
+    warming = false;
+    showBack(false);                 // the warm pass is not a break-away
+    room.cast('hello', {});          // and now tell the stage where to put us
+  });
+}
+
+/* ══ Boot ═════════════════════════════════════════════════════════════════ */
+function boot() {
+  var r = readRole();
+  injectCss();
+
+  if (r && r.role === 'remote') { runRemote(r.code, r.tok); return; }
+
+  whenDeck(function (deck) {
+    if (r && r.role === 'stage') runStage(deck);
+    else if (r && r.role === 'audience') runAudience(deck, r.code);
+    else {
+      /* Not live: one key turns this tab into the stage. */
+      window.addEventListener('keydown', function onKey(e) {
+        if (e.key !== 'l' && e.key !== 'L') return;
+        if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+        window.removeEventListener('keydown', onKey);
+        runStage(deck);
+      });
+    }
+  });
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+
+})();
+</script>

@@ -1,0 +1,477 @@
+<helmet>
+<style>
+  body { margin: 0; background: #101013; }
+  a { color: #E2545C; text-decoration: none; }
+  a:hover { color: #F3F3F1; }
+  @keyframes riseIn {
+    from { opacity: 0; transform: translateY(22px); filter: blur(5px); }
+    55%  { filter: blur(0); }
+    to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes ruleGrow { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+  @keyframes barGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @keyframes drift1 {
+    0% { transform: translate3d(0.000%, -0.000%, 0) scale(1.0000); }
+    6.25% { transform: translate3d(0.228%, -0.190%, 0) scale(1.0061); }
+    12.5% { transform: translate3d(0.879%, -0.732%, 0) scale(1.0234); }
+    18.75% { transform: translate3d(1.852%, -1.543%, 0) scale(1.0494); }
+    25% { transform: translate3d(3.000%, -2.500%, 0) scale(1.0800); }
+    31.25% { transform: translate3d(4.148%, -3.457%, 0) scale(1.1106); }
+    37.5% { transform: translate3d(5.121%, -4.268%, 0) scale(1.1366); }
+    43.75% { transform: translate3d(5.772%, -4.810%, 0) scale(1.1539); }
+    50% { transform: translate3d(6.000%, -5.000%, 0) scale(1.1600); }
+    56.25% { transform: translate3d(5.772%, -4.810%, 0) scale(1.1539); }
+    62.5% { transform: translate3d(5.121%, -4.268%, 0) scale(1.1366); }
+    68.75% { transform: translate3d(4.148%, -3.457%, 0) scale(1.1106); }
+    75% { transform: translate3d(3.000%, -2.500%, 0) scale(1.0800); }
+    81.25% { transform: translate3d(1.852%, -1.543%, 0) scale(1.0494); }
+    87.5% { transform: translate3d(0.879%, -0.732%, 0) scale(1.0234); }
+    93.75% { transform: translate3d(0.228%, -0.190%, 0) scale(1.0061); }
+    100% { transform: translate3d(0.000%, -0.000%, 0) scale(1.0000); }
+  }
+  @keyframes drift2 {
+    0% { transform: translate3d(-0.000%, 0.000%, 0) scale(1.1000); }
+    6.25% { transform: translate3d(-0.266%, 0.190%, 0) scale(1.0939); }
+    12.5% { transform: translate3d(-1.025%, 0.732%, 0) scale(1.0766); }
+    18.75% { transform: translate3d(-2.161%, 1.543%, 0) scale(1.0506); }
+    25% { transform: translate3d(-3.500%, 2.500%, 0) scale(1.0200); }
+    31.25% { transform: translate3d(-4.839%, 3.457%, 0) scale(0.9894); }
+    37.5% { transform: translate3d(-5.975%, 4.268%, 0) scale(0.9634); }
+    43.75% { transform: translate3d(-6.734%, 4.810%, 0) scale(0.9461); }
+    50% { transform: translate3d(-7.000%, 5.000%, 0) scale(0.9400); }
+    56.25% { transform: translate3d(-6.734%, 4.810%, 0) scale(0.9461); }
+    62.5% { transform: translate3d(-5.975%, 4.268%, 0) scale(0.9634); }
+    68.75% { transform: translate3d(-4.839%, 3.457%, 0) scale(0.9894); }
+    75% { transform: translate3d(-3.500%, 2.500%, 0) scale(1.0200); }
+    81.25% { transform: translate3d(-2.161%, 1.543%, 0) scale(1.0506); }
+    87.5% { transform: translate3d(-1.025%, 0.732%, 0) scale(1.0766); }
+    93.75% { transform: translate3d(-0.266%, 0.190%, 0) scale(1.0939); }
+    100% { transform: translate3d(-0.000%, 0.000%, 0) scale(1.1000); }
+  }
+  @keyframes drift3 {
+    0% { transform: translate3d(0.000%, 0.000%, 0) scale(0.9600); }
+    6.25% { transform: translate3d(0.190%, 0.266%, 0) scale(0.9691); }
+    12.5% { transform: translate3d(0.732%, 1.025%, 0) scale(0.9951); }
+    18.75% { transform: translate3d(1.543%, 2.161%, 0) scale(1.0341); }
+    25% { transform: translate3d(2.500%, 3.500%, 0) scale(1.0800); }
+    31.25% { transform: translate3d(3.457%, 4.839%, 0) scale(1.1259); }
+    37.5% { transform: translate3d(4.268%, 5.975%, 0) scale(1.1649); }
+    43.75% { transform: translate3d(4.810%, 6.734%, 0) scale(1.1909); }
+    50% { transform: translate3d(5.000%, 7.000%, 0) scale(1.2000); }
+    56.25% { transform: translate3d(4.810%, 6.734%, 0) scale(1.1909); }
+    62.5% { transform: translate3d(4.268%, 5.975%, 0) scale(1.1649); }
+    68.75% { transform: translate3d(3.457%, 4.839%, 0) scale(1.1259); }
+    75% { transform: translate3d(2.500%, 3.500%, 0) scale(1.0800); }
+    81.25% { transform: translate3d(1.543%, 2.161%, 0) scale(1.0341); }
+    87.5% { transform: translate3d(0.732%, 1.025%, 0) scale(0.9951); }
+    93.75% { transform: translate3d(0.190%, 0.266%, 0) scale(0.9691); }
+    100% { transform: translate3d(0.000%, 0.000%, 0) scale(0.9600); }
+  }
+
+  /* Everything below is screen-only. Print / PPTX export drives its own
+     animation state (it force-activates every slide and fast-forwards
+     animations to their end frame), so these rules must never apply
+     there -- a paused entrance would export at opacity 0. */
+  @media screen {
+    /* ─── perf: ambience gating ──────────────────────────────────────────
+       Every slide stays in the DOM (the stage only toggles visibility) and
+       the thumbnail rail adopts this same stylesheet into 8 shadow roots,
+       so the drift loops were running ~38x at once. `deck-stage` is the
+       live-document guard: thumbnail clones have no such ancestor, so they
+       settle on the 0% keyframe (= resting state, visually identical) and
+       cost nothing. Only the on-screen slide actually animates. */
+    /* !important is load-bearing throughout: the blobs carry an inline
+       `animation` shorthand, which resets these longhands to their initial
+       values at the highest non-important specificity. */
+    .amb > * { animation-play-state: paused !important; }
+    deck-stage > [data-deck-active] .amb > * {
+      animation-play-state: running !important;
+      /* The drift loops run 36-48s, so a blob moves well under a pixel per
+         frame -- yet every frame still invalidated a ~2M-pixel gradient. The
+         keyframes above sample the original ease-in-out path onto a cosine,
+         so the easing now lives in the keyframe data and the timing function
+         is free to quantise time: 144 ticks per cycle (~0.25s apart, under a
+         pixel of travel) instead of one re-raster per frame. Same path, same
+         speed, a fraction of the paint. */
+      animation-timing-function: steps(9, end) !important;
+    }
+    /* Entrance animations: same idea. They used to fire on every slide at
+       once during load; now each slide plays its build when you arrive. */
+    deck-stage > section:not([data-deck-active]) [data-anim] {
+      animation-play-state: paused !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .amb > * { animation: none !important; }
+    }
+  }
+
+  @keyframes breathe { 0%,100% { opacity: 0.55; } 50% { opacity: 0.9; } }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     READING VIEW — the portrait/mobile companion.
+     A 16:9 canvas letterboxed into a portrait phone fills ~26% of the
+     screen and lands body copy near 5px, so the deck alone cannot carry
+     the content there. This is the same material in the deck's own visual
+     language (palette, type hierarchy, ambience, accent rules), reflowed
+     into one readable column. Landscape and desktop keep the real deck.
+     ══════════════════════════════════════════════════════════════════════ */
+  #mv { display: none; }
+
+  /* Default: deck on, reading view off. The body class is set by script
+     (and by the media query below when script hasn't run yet). */
+  body.mv-on #mv { display: block; }
+  /* The cursor glow is a deck effect; it must not float over the article. */
+  body.mv-on #dc-glow { display: none !important; }
+  body.mv-on deck-stage { display: none !important; }
+
+  #mv {
+    position: relative;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: #101013;
+    color: #F3F3F1;
+    font-family: Arial, Helvetica, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  .mv-amb { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  .mv-amb > i {
+    position: absolute; display: block; border-radius: 50%;
+  }
+  .mv-amb > i:first-child {
+    width: 150vw; height: 150vw; left: -55vw; top: -40vw;
+    background: radial-gradient(circle, #2B1F26 0%, rgba(43,31,38,0.40) 42%, rgba(16,16,19,0) 72%);
+  }
+  .mv-amb > i:last-child {
+    width: 130vw; height: 130vw; right: -50vw; bottom: -30vw;
+    background: radial-gradient(circle, rgba(226,84,92,0.11) 0%, rgba(226,84,92,0.035) 42%, rgba(16,16,19,0) 72%);
+  }
+
+  .mv-bar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 12px;
+    padding: calc(10px + env(safe-area-inset-top)) clamp(16px, 5vw, 28px) 10px;
+    background: rgba(16,16,19,0.82);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-bottom: 1px solid #22222a;
+  }
+  /* Read-progress hairline along the bottom edge of the sticky bar. --mv-p is
+     written by the scroll handler; 90ms smooths the step between rAF ticks
+     without lagging behind the thumb. */
+  .mv-bar::after {
+    content: ""; position: absolute; left: 0; bottom: -1px; height: 2px;
+    width: var(--mv-p, 0%); background: #E2545C;
+    transition: width 90ms linear;
+  }
+  @media (prefers-reduced-motion: reduce) { .mv-bar::after { transition: none; } }
+
+  /* The bar title is a control: it names the section you are in and opens the
+     index. 44px tall, because it is the one thing on the page a thumb hunts for. */
+  .mv-jump {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px;
+    font-family: Arial, Helvetica, sans-serif;
+    background: none; border: 0; padding: 0; margin: 0;
+    min-height: 44px; text-align: left; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mv-jump-n {
+    flex: none; font-style: normal; color: #E2545C;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.1em;
+  }
+  .mv-jump-t {
+    flex: 1; min-width: 0; color: #D7D7D4;
+    font-size: 13.5px; font-weight: 700; letter-spacing: 0.04em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mv-jump-c {
+    flex: none; width: 15px; height: 15px; color: #8A8A92;
+    transition: transform 180ms ease;
+  }
+  body.mv-index-on .mv-jump-c { transform: rotate(180deg); }
+  .mv-jump:active .mv-jump-t { color: #F3F3F1; }
+
+  /* Section index. Drops out of the bar; --mv-bar-h is measured rather than
+     assumed, because the bar grows by the notch inset on a phone that has one. */
+  #mv-index {
+    position: fixed; left: 0; right: 0; z-index: 6;
+    top: var(--mv-bar-h, 61px);
+    max-height: calc(100dvh - var(--mv-bar-h, 61px) - 14px);
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    display: none;
+    padding: 0 0 calc(6px + env(safe-area-inset-bottom));
+    background: rgba(18,18,22,0.97);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    border-bottom: 1px solid #22222a;
+  }
+  body.mv-index-on #mv-index { display: block; }
+  #mv-index button {
+    display: flex; width: 100%; gap: 14px; align-items: baseline;
+    background: none; border: 0; border-top: 1px solid #1D1D23;
+    padding: 13px clamp(16px, 5vw, 28px); min-height: 48px;
+    font-family: Arial, Helvetica, sans-serif; text-align: left; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #mv-index button:first-child { border-top: 0; }
+  #mv-index button:active { background: #1E1E22; }
+  #mv-index button > i {
+    flex: none; width: 22px; font-style: normal; color: #6E6E77;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.12em;
+  }
+  #mv-index button > span {
+    flex: 1; color: #D7D7D4; font-size: 16px; font-weight: 700; line-height: 1.3;
+  }
+  #mv-index button[aria-current="true"] > i,
+  #mv-index button[aria-current="true"] > span { color: #E2545C; }
+
+  #mv-scrim {
+    position: fixed; inset: 0; z-index: 4; display: none;
+    background: rgba(10,10,12,0.55);
+  }
+  body.mv-index-on #mv-scrim { display: block; }
+
+  /* A tapped section has to clear the sticky bar, not hide under it. */
+  .mv-wrap > article { scroll-margin-top: calc(var(--mv-bar-h, 61px) + 14px); }
+
+  #mv-top {
+    position: fixed; z-index: 6;
+    right: calc(14px + env(safe-area-inset-right));
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    width: 46px; height: 46px; border-radius: 50%;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(30,30,34,0.90); border: 1px solid #313138;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: #F3F3F1; cursor: pointer; -webkit-tap-highlight-color: transparent;
+    opacity: 0; transform: translateY(10px); pointer-events: none;
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+  body.mv-on #mv-top { display: flex; }
+  body.mv-top-on #mv-top { opacity: 1; transform: none; pointer-events: auto; }
+  body.mv-index-on #mv-top { opacity: 0; pointer-events: none; }
+  #mv-top svg { width: 19px; height: 19px; }
+
+  .mv-btn {
+    /* Explicit family, not `inherit`: #mv-toread is appended to <body>,
+       which sets no font, so it would fall back to the UA serif. */
+    flex: none; font-family: Arial, Helvetica, sans-serif;
+    font-size: 13px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: #F3F3F1; background: #1E1E22; border: 1px solid #313138;
+    border-radius: 999px; padding: 11px 17px; min-height: 44px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mv-btn:active { background: #2A2A31; }
+
+  .mv-wrap {
+    position: relative; z-index: 1;
+    max-width: 46rem; margin: 0 auto;
+    padding: clamp(20px, 6vw, 40px) clamp(16px, 5vw, 28px)
+             calc(clamp(40px, 12vw, 80px) + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: clamp(28px, 8vw, 52px);
+  }
+  .mv-card {
+    background: rgba(30,30,34,0.55);
+    border: 1px solid #22222a;
+    border-radius: 18px;
+    padding: clamp(20px, 5.5vw, 34px);
+  }
+  .mv-hero { background: none; border: none; padding-left: 0; padding-right: 0; }
+  .mv-end  { text-align: center; }
+
+  .eyebrow {
+    display: block; color: #E2545C;
+    font-size: clamp(11px, 3vw, 13px); font-weight: 700;
+    letter-spacing: 0.28em; text-transform: uppercase;
+  }
+  .mv-h1 {
+    margin: 14px 0 0; font-weight: 700; letter-spacing: -0.02em;
+    font-size: clamp(34px, 10.5vw, 62px); line-height: 1.04;
+    text-wrap: balance;
+  }
+  .mv-h1 em { font-style: normal; color: #E2545C; }
+  .mv-h2 {
+    margin: 12px 0 0; font-weight: 700; letter-spacing: -0.02em;
+    font-size: clamp(26px, 7.6vw, 42px); line-height: 1.12;
+    text-wrap: balance;
+  }
+  .mv-thanks { font-size: clamp(38px, 12vw, 64px); }
+  .byline { margin: 10px 0 0; color: #9E9EA6; font-size: clamp(14px, 4vw, 17px); }
+  .lead {
+    margin: 18px 0 0; color: #D7D7D4;
+    font-size: clamp(16px, 4.4vw, 20px); line-height: 1.55; text-wrap: pretty;
+  }
+  .dim  { margin: 12px 0 0; color: #9E9EA6; font-size: clamp(14px, 4vw, 17px); line-height: 1.55; }
+  .note { margin: 22px 0 0; color: #8A8A92; font-size: clamp(13px, 3.6vw, 15px); line-height: 1.5; }
+  .src  { margin: 22px 0 0; color: #8A8A92; font-size: clamp(12px, 3.3vw, 14px); line-height: 1.5; }
+  .rule { height: 1px; margin: 22px 0; background: linear-gradient(90deg, #313138, rgba(49,49,56,0)); }
+
+  .kicker {
+    margin: 26px 0 0; color: #9E9EA6;
+    font-size: clamp(11px, 3vw, 12px); font-weight: 700;
+    letter-spacing: 0.2em; text-transform: uppercase;
+  }
+  .kicker-2 { margin-top: 24px; }
+
+  .who { margin: 0; display: grid; grid-template-columns: 1fr; gap: 4px 0; }
+  .who dt {
+    color: #8A8A92; font-size: clamp(11px, 3vw, 12px); font-weight: 700;
+    letter-spacing: 0.2em; text-transform: uppercase; margin-top: 16px;
+  }
+  .who dd { margin: 4px 0 0; font-size: clamp(15px, 4.2vw, 18px); line-height: 1.5; color: #F3F3F1; }
+
+  /* numbered + labelled lists */
+  .four, .steps, .recap { margin: 20px 0 0; padding: 0; list-style: none; counter-reset: n; }
+  .three { margin: 20px 0 0; padding: 0; list-style: none; }
+  .four > li, .steps > li, .recap > li, .three > li {
+    position: relative; padding: 16px 0 0;
+    border-top: 1px solid #22222a; margin-top: 16px;
+  }
+  .four > li:first-child, .steps > li:first-child,
+  .recap > li:first-child, .three > li:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+  .four > li::before, .steps > li::before, .recap > li::before {
+    counter-increment: n; content: counter(n, decimal-leading-zero);
+    display: block; color: #E2545C; font-weight: 700;
+    font-size: clamp(12px, 3.2vw, 13px); letter-spacing: 0.14em; margin-bottom: 6px;
+  }
+  .four > li > b, .steps > li > b, .recap > li > b, .three > li > b {
+    display: block; font-size: clamp(16px, 4.4vw, 19px); font-weight: 700;
+    letter-spacing: 0.02em; color: #F3F3F1;
+  }
+  .three > li > b { color: #E2545C; letter-spacing: 0.16em; text-transform: uppercase;
+    font-size: clamp(12px, 3.3vw, 14px); }
+  .four > li > span, .steps > li > span, .recap > li > span, .three > li > span {
+    display: block; margin-top: 6px; color: #9E9EA6;
+    font-size: clamp(14.5px, 4vw, 17px); line-height: 1.55; text-wrap: pretty;
+  }
+  .recap > li > em {
+    display: block; margin-top: 8px; font-style: normal; color: #E2545C;
+    font-weight: 700; font-size: clamp(14px, 3.8vw, 16px);
+  }
+
+  /* Risk list: the label, the risk, then the fix. The fix is what carries the
+     slide, so it gets the panel rather than a footnote. */
+  .risks { margin: 20px 0 0; padding: 0; list-style: none; }
+  .risks > li {
+    padding: 16px 0 0; border-top: 1px solid #22222a; margin-top: 18px;
+  }
+  .risks > li:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+  .risks > li > i {
+    display: block; font-style: normal; color: #9C9CA2;
+    font-size: clamp(11px, 3vw, 12px); font-weight: 700;
+    letter-spacing: 0.2em; text-transform: uppercase;
+  }
+  .risks > li > b {
+    display: block; margin-top: 7px; color: #F3F3F1;
+    font-size: clamp(17px, 4.7vw, 20px); font-weight: 700; line-height: 1.3;
+    text-wrap: pretty;
+  }
+  .risks > li > span {
+    display: block; margin-top: 12px; padding: 13px 15px;
+    background: #1A1A1E; border: 1px solid #26262e; border-radius: 12px;
+    color: #9E9EA6; font-size: clamp(14.5px, 4vw, 17px); line-height: 1.55;
+    text-wrap: pretty;
+  }
+  .risks > li > span > em {
+    display: block; margin-bottom: 4px; font-style: normal; color: #E2545C;
+    font-size: clamp(11px, 3vw, 12px); font-weight: 700;
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  /* A gap we are not solving is not an achievement -- grey, not accent. */
+  .recap > li > em.grey { color: #9C9CA2; }
+
+  .panel {
+    margin: 26px 0 0; padding: clamp(18px, 4.5vw, 26px);
+    background: #1A1A1E; border: 1px solid #26262e; border-radius: 14px;
+  }
+  .panel > .kicker:first-child { margin-top: 0; }
+  .stat {
+    margin: 12px 0 0; color: #E2545C; font-weight: 700;
+    letter-spacing: -0.03em; line-height: 1;
+    font-size: clamp(40px, 13vw, 66px);
+  }
+  .stat-sm { font-size: clamp(30px, 9.5vw, 48px); margin-top: 24px; }
+  .stat-pre { margin: 12px 0 0; color: #9E9EA6; font-size: clamp(14px, 3.8vw, 16px); }
+  .stat-cap { margin: 10px 0 0; color: #9E9EA6; font-size: clamp(14px, 3.9vw, 16.5px); line-height: 1.55; text-wrap: pretty; }
+
+  .bar { display: flex; margin: 12px 0 0; border-radius: 8px; overflow: hidden; min-height: 44px; }
+  .bar > i, .bar > u {
+    display: flex; align-items: center; padding: 0 12px;
+    font-style: normal; text-decoration: none;
+    font-size: clamp(11.5px, 3.1vw, 13px); font-weight: 700; letter-spacing: 0.04em;
+    white-space: nowrap; overflow: hidden;
+  }
+  .bar > i { background: #B23A42; color: #fff; }
+  .bar > u { background: #26262e; color: #8A8A92; justify-content: flex-end; }
+
+  .quote {
+    margin: 26px 0 0; padding: 0 0 0 clamp(14px, 4vw, 20px);
+    border-left: 2px solid #E2545C;
+    color: #D7D7D4; font-size: clamp(16px, 4.5vw, 20px); line-height: 1.5;
+  }
+  .quote cite { display: block; margin-top: 10px; font-style: normal; color: #8A8A92;
+    font-size: clamp(13px, 3.5vw, 15px); }
+
+  .scale { margin: 16px 0 0; color: #9E9EA6; font-size: clamp(14.5px, 4vw, 17px); line-height: 1.55; text-wrap: pretty; }
+  .scale > b { color: #F3F3F1; }
+
+  .warn {
+    margin: 26px 0 0; padding: clamp(18px, 4.5vw, 26px);
+    background: rgba(178,58,66,0.10); border: 1px solid rgba(226,84,92,0.28);
+    border-radius: 14px;
+  }
+  .warn .kicker { margin-top: 0; color: #E2545C; }
+  .warn > p { margin: 12px 0 0; color: #D7D7D4; font-size: clamp(14.5px, 4vw, 17px); line-height: 1.55; text-wrap: pretty; }
+
+  /* ── Rotate affordance, shown over the deck in portrait ─────────────── */
+  #mv-rotate {
+    position: fixed; z-index: 40;
+    left: 50%; bottom: calc(18px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    display: none; align-items: center; gap: 9px;
+    padding: 11px 18px; border-radius: 999px;
+    background: rgba(30,30,34,0.92); border: 1px solid #313138;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: #F3F3F1; font: 700 13px/1 Arial, Helvetica, sans-serif; letter-spacing: 0.06em;
+    white-space: nowrap; pointer-events: none;
+  }
+  body.mv-rotate-hint #mv-rotate { display: flex; }
+  #mv-rotate svg { width: 16px; height: 16px; flex: none; }
+
+  /* ── Fullscreen / present control ───────────────────────────────────── */
+  #mv-fs {
+    position: fixed; z-index: 40;
+    right: calc(14px + env(safe-area-inset-right));
+    top: calc(14px + env(safe-area-inset-top));
+    width: 44px; height: 44px; display: none;
+    align-items: center; justify-content: center;
+    border-radius: 12px; cursor: pointer;
+    background: rgba(30,30,34,0.78); border: 1px solid #313138;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: #F3F3F1; -webkit-tap-highlight-color: transparent;
+  }
+  body.mv-show-fs #mv-fs { display: flex; }
+  #mv-fs svg { width: 18px; height: 18px; }
+
+  /* ── Read-view entry point, shown over the deck on small screens ────── */
+  #mv-toread {
+    position: fixed; z-index: 40;
+    left: calc(14px + env(safe-area-inset-left));
+    top: calc(14px + env(safe-area-inset-top));
+    display: none;
+  }
+  body.mv-show-read #mv-toread { display: block; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #mv * { animation: none !important; transition: none !important; }
+  }
+
+  /* First paint, before <deck-stage> has upgraded and the shell can set
+     .mv-on: a portrait phone gets the reading view straight away rather than
+     a letterboxed 16:9 slide that flips a moment later. The shell sets
+     `mv-ready` on <html> once it is driving that choice itself. */
+  @media (orientation: portrait) and (max-width: 900px) {
+    html:not(.mv-ready) #mv { display: block; }
+    html:not(.mv-ready) deck-stage { display: none !important; }
+  }
+</style>
+</helmet>

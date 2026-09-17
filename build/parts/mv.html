@@ -1,0 +1,86 @@
+<div id="mv" aria-label="Readable version">
+  <div class="mv-amb" aria-hidden="true"><i></i><i></i></div>
+
+  <header class="mv-bar">
+    <button type="button" id="mv-jump" class="mv-jump" aria-expanded="false" aria-controls="mv-index">
+      <i class="mv-jump-n">01</i>
+      <span class="mv-jump-t">Cover</span>
+      <svg class="mv-jump-c" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <button type="button" id="mv-toslides" class="mv-btn">Slides</button>
+  </header>
+
+  <nav id="mv-index" aria-label="Sections"></nav>
+
+  <main class="mv-wrap">
+
+    <!-- data-slide pins each card to its artboard, so a phone following the
+         room lands on the right one even if the two files drift apart. -->
+    <article data-nav="Cover" data-slide="0" class="mv-card mv-hero">
+      <span class="eyebrow">Live presentation system</span>
+      <h1 class="mv-h1">The Deck That<br><em>Follows You</em></h1>
+      <p class="lead">A normal HTML deck on a projector. Scan the code and it is also on your phone, on the slide the presenter is on right now — and their phone is the remote.</p>
+      <div class="rule"></div>
+      <dl class="who">
+        <dt>To go live</dt><dd>Press <b>L</b> on the deck, then point a camera at the code that appears.</dd>
+        <dt>Stage to phone</dt><dd>About 80 milliseconds.</dd>
+      </dl>
+    </article>
+
+    <article data-nav="Three Roles" data-slide="1" class="mv-card">
+      <span class="eyebrow">How it works</span>
+      <h2 class="mv-h2">Three Screens, Three Jobs</h2>
+      <ul class="three">
+        <li><b>Stage</b><span>The laptop on the projector. It owns the current slide and hands out both links as codes on screen.</span></li>
+        <li><b>Remote</b><span>The presenter's own phone. Next and back, their notes, a timer and a pointer — and nobody else can drive.</span></li>
+        <li><b>Audience</b><span>Everyone else's phones. The same slide, close up and readable, without squinting at the wall.</span></li>
+      </ul>
+      <p class="src">Nothing to install. Every role is the same web page, opened at a different link.</p>
+    </article>
+
+    <article data-nav="Scan to Follow" data-slide="2" class="mv-card">
+      <span class="eyebrow">The one step</span>
+      <h2 class="mv-h2">Scan Once, Follow Everything</h2>
+      <p class="lead">A four-character room code and a camera. From then on, every time the presenter moves, your screen moves.</p>
+      <ol class="four">
+        <li><b>They press L</b><span>Two codes appear on the projector — one for the room, one private.</span></li>
+        <li><b>You scan the left one</b><span>Point a camera at it and tap the link that pops up.</span></li>
+        <li><b>That is it</b><span>No app, no sign-in, no typing out a long address.</span></li>
+      </ol>
+      <p class="src">The presenter's panel shows how many phones are in the room, live.</p>
+    </article>
+
+    <article data-nav="The Remote" data-slide="3" class="mv-card">
+      <span class="eyebrow">In my hand</span>
+      <h2 class="mv-h2">My Phone Is the Clicker</h2>
+      <p class="lead">No more standing next to the laptop. Everything a presenter view gives you, on the device already in your hand.</p>
+      <ul class="three">
+        <li><b>My notes, in full size</b><span>The same notes already written into the slide — you write them once.</span></li>
+        <li><b>What is coming next</b><span>The next slide's title, so a transition never catches you out.</span></li>
+        <li><b>A running clock</b><span>Started the moment the deck went live, not when you opened the file.</span></li>
+        <li><b>Drag to point</b><span>A dot lands on the projected slide, exactly where you aimed.</span></li>
+      </ul>
+      <p class="src">Only the phone that scanned the private code can move the deck. A room code on its own does nothing.</p>
+    </article>
+
+    <article data-nav="Audience Modes" data-slide="4" class="mv-card">
+      <span class="eyebrow">Your call</span>
+      <h2 class="mv-h2">How Much They Get to Wander</h2>
+      <ul class="three">
+        <li><b>Locked</b><span>They watch, only. Swiping does nothing. For when the order of the argument matters.</span></li>
+        <li><b>Follow — the default</b><span>They follow, but may stray back a slide to re-read, then tap one button to catch up.</span></li>
+        <li><b>Open</b><span>The whole deck is theirs. For a workshop, or the moment you stop talking and they start reading.</span></li>
+      </ul>
+      <p class="src">Switch between them mid-sentence. There is also a quiet "I'm lost" tap that only the presenter sees.</p>
+    </article>
+
+    <article data-nav="Ready Before You Start" data-slide="5" class="mv-card mv-end">
+      <span class="eyebrow">The boring part that matters</span>
+      <h2 class="mv-h2">Nothing Loads Mid-Sentence</h2>
+      <p class="lead">Before the deck will call itself live it goes through every slide behind a cover: fonts resolved, images decoded, each slide actually drawn once, the screen locked awake, the connection joined.</p>
+      <p class="lead">And if the wifi gives out, the sync quietly stops and the deck keeps working like any other deck. It can never take the presentation down with it.</p>
+      <h2 class="mv-h2 mv-thanks">Thank you</h2>
+    </article>
+
+  </main>
+</div>

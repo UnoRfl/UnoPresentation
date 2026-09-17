@@ -1,0 +1,432 @@
+<script type="text/x-dc" data-dc-script="" data-props="{}">
+class Component extends DCLogic {
+  componentDidMount() {
+    // Replay a slide's entrance build each time it becomes active.
+    this._onSlideChange = (e) => {
+      const slide = e.detail && e.detail.slide;
+      if (!slide) return;
+      slide.querySelectorAll('[data-anim]').forEach((el) => {
+        [el, ...el.querySelectorAll('*')].forEach((n) => {
+          if (!n.getAnimations) return;
+          n.getAnimations().forEach((a) => {
+            const inf = a.effect && a.effect.getTiming && a.effect.getTiming().iterations === Infinity;
+            if (inf) return;
+            try { a.cancel(); a.play(); } catch (err) {}
+          });
+        });
+      });
+    };
+    document.addEventListener('slidechange', this._onSlideChange);
+    this._mountGlow();
+    this._mountResponsive();
+  }
+
+  /* ── Pointer glow ───────────────────────────────────────────────────────
+     The original bound `pointerdown` too, so on a phone one tap parked a
+     permanent 900px halo on screen; it is a mouse effect, so it is now
+     gated to fine pointers and off under prefers-reduced-motion.
+
+     The look is unchanged on desktop. `mix-blend-mode: screen` is what
+     blooms the white headline instead of tinting it pink, and it is a cheap
+     fragment op on any GPU -- but on a machine falling back to software
+     compositing it is the single most expensive thing on the page (measured
+     59 -> 29fps, and no cheaper at any size or update rate). So instead of
+     trading the effect away for everyone, the first burst of pointer motion
+     is timed: if frames are actually landing below ~42fps the blend steps
+     down to `normal`, which costs almost nothing, and the verdict is
+     remembered. Capable machines keep the bloom; weak ones stop stuttering. */
+  _mountGlow() {
+    if (!matchMedia('(pointer: fine)').matches) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const glow = document.createElement('div');
+    glow.id = 'dc-glow';
+    glow.setAttribute('aria-hidden', 'true');
+    glow.style.cssText = [
+      'position:fixed', 'left:0', 'top:0', 'width:900px', 'height:900px',
+      'margin:-450px 0 0 -450px', 'border-radius:50%', 'pointer-events:none',
+      'z-index:2147482000', 'mix-blend-mode:screen', 'opacity:0',
+      'transition:opacity 700ms ease-out',
+      'background:radial-gradient(circle, rgba(226,84,92,0.16) 0%, rgba(226,84,92,0.07) 26%, rgba(155,160,180,0.035) 48%, rgba(0,0,0,0) 68%)'
+    ].join(';');
+    document.body.appendChild(glow);
+    this._glow = glow;
+
+    const LITE = 'dc-glow-lite';
+    let lite = false;
+    try { lite = localStorage.getItem(LITE) === '1'; } catch (e) {}
+    if (lite) glow.style.mixBlendMode = 'normal';
+
+    // Frame-cost probe: only samples while the pointer is genuinely moving,
+    // discards a run the user cut short, and gives up after three rounds.
+    let probing = false, settled = lite, rounds = 0, samples = [], prev = 0, moveAt = 0;
+    const step = (now) => {
+      if (!probing) return;
+      if (now - moveAt > 140) {                 // motion stopped: discard run
+        probing = false; samples = []; prev = 0; return;
+      }
+      if (prev) samples.push(now - prev);
+      prev = now;
+      if (samples.length < 40) { requestAnimationFrame(step); return; }
+      probing = false; prev = 0;
+      samples.sort((a, b) => a - b);
+      const median = samples[samples.length >> 1];
+      samples = [];
+      if (median > 24) {                        // under ~42fps -> step down
+        glow.style.mixBlendMode = 'normal';
+        settled = true;
+        try { localStorage.setItem(LITE, '1'); } catch (e) {}
+      } else if (++rounds >= 3) {
+        settled = true;                         // fast enough, stop measuring
+      }
+    };
+
+    const MIN_DT = 30;                          // ms between transform writes
+    let tx = innerWidth / 2, ty = innerHeight / 2, x = tx, y = ty;
+    let raf = null, lastWrite = 0;
+    const tick = (now) => {
+      raf = null;
+      if (now - lastWrite >= MIN_DT) {
+        // 0.26 at ~30Hz tracks like 0.12 at 60Hz.
+        x += (tx - x) * 0.26;
+        y += (ty - y) * 0.26;
+        glow.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0)';
+        lastWrite = now;
+      }
+      if (Math.abs(tx - x) > 0.5 || Math.abs(ty - y) > 0.5) raf = requestAnimationFrame(tick);
+    };
+    this._onMove = (e) => {
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      tx = e.clientX; ty = e.clientY;
+      glow.style.opacity = '1';
+      moveAt = performance.now();
+      if (!raf) raf = requestAnimationFrame(tick);
+      if (!settled && !probing) { probing = true; requestAnimationFrame(step); }
+    };
+    this._onLeave = () => { glow.style.opacity = '0'; };
+    window.addEventListener('pointermove', this._onMove, { passive: true });
+    document.addEventListener('mouseleave', this._onLeave);
+    window.addEventListener('beforeprint', this._onLeave);
+  }
+
+  /* ── Responsive shell ───────────────────────────────────────────────────
+     Everything the deck component does not do for itself: drop the 188px
+     thumbnail rail before it starts eating a small screen's width, hand
+     portrait phones the reading view, add swipe + fullscreen for touch, and
+     keep the URL pointing at the current slide so a link can be shared. */
+  /* <x-import> resolves the deck component asynchronously, so at
+     componentDidMount time <deck-stage> may not exist yet -- and even once
+     it does, its goTo/next/prev only exist after upgrade. Wait for both
+     rather than silently no-op'ing. */
+  _mountResponsive() {
+    const t0 = performance.now();
+    let timer = null;
+
+    const done = () => {
+      if (timer) { clearInterval(timer); timer = null; }
+      document.removeEventListener('visibilitychange', onVis);
+    };
+    const tryMount = () => {
+      const deck = document.querySelector('deck-stage');
+      if (!(deck && typeof deck.goTo === 'function' && deck.shadowRoot)) return false;
+      done();
+      this._responsive(deck);
+      return true;
+    };
+    const onVis = () => { if (!document.hidden) tryMount(); };
+
+    // This used to poll with requestAnimationFrame alone against a 20s budget
+    // measured in wall-clock time. rAF is throttled to a crawl -- or stopped
+    // outright -- in a tab that is not visible, so a link opened in a
+    // background tab, or on a connection slow enough to push deck-stage past
+    // the budget, burned the 20s without ever getting a poll in. The shell
+    // then never mounted at all: no Read button, no swipe, no fullscreen, and
+    // on a portrait phone no way off a 16:9 slide rendering body text at
+    // about 5px. An interval keeps polling where rAF will not, visibility
+    // change catches the tab coming back, and the budget is generous because
+    // the cost of one more poll is nothing next to the cost of giving up.
+    document.addEventListener('visibilitychange', onVis);
+    this._unmount = done;
+    if (tryMount()) return;
+    timer = setInterval(() => {
+      if (tryMount()) return;
+      if (performance.now() - t0 > 60000) done();
+    }, 120);
+  }
+
+  _responsive(deck) {
+    this._deck = deck;
+    // apply() runs before _reader() has replaced these.
+    this._closeIndex = this._closeIndex || function () {};
+    this._syncNav = this._syncNav || function () {};
+    const body = document.body;
+    const cleanup = this._cleanup = [];
+    const on = (t, ev, fn, o) => { t.addEventListener(ev, fn, o); cleanup.push(() => t.removeEventListener(ev, fn, o)); };
+
+    // The rail costs a flat 188px. Worth it on a desktop with width to
+    // spare; not on a tablet or a small laptop, and never on touch, where
+    // it is a mouse affordance and swipe covers navigation anyway.
+    const mqRail  = matchMedia('(max-width: 1250px), (pointer: coarse)');
+    const mqRead  = matchMedia('(orientation: portrait) and (max-width: 900px)');
+    const mqTouch = matchMedia('(pointer: coarse)');
+    const mqPort  = matchMedia('(orientation: portrait)');
+
+    // ── Reading view vs deck. Auto by viewport until the user picks. ──
+    let forced = null;                       // 'read' | 'deck' | null
+    const apply = () => {
+      const read = forced ? forced === 'read' : mqRead.matches;
+      body.classList.toggle('mv-on', read);
+      // The rail is 188px of a viewport that may only be 393px wide.
+      deck.toggleAttribute('no-rail', mqRail.matches);
+      body.classList.toggle('mv-show-fs', !read && mqTouch.matches);
+      body.classList.toggle('mv-show-read', !read && (mqRead.matches || mqTouch.matches && innerWidth <= 1250));
+      body.classList.toggle('mv-rotate-hint', !read && mqPort.matches && innerWidth <= 900);
+      if (read) document.title = 'UnoPresentation — The Deck That Follows You';
+      // The stylesheet defaults a portrait phone to the reading view so it is
+      // what first paints; from here the shell owns the decision, so stand the
+      // CSS fallback down rather than leaving two rules arguing about it.
+      document.documentElement.classList.add('mv-ready');
+      if (!read) this._closeIndex();
+      else this._syncNav();
+    };
+    [mqRail, mqRead, mqTouch, mqPort].forEach((mq) => on(mq, 'change', apply));
+    on(window, 'resize', apply, { passive: true });
+    on(window, 'orientationchange', apply);
+
+    // ── Controls ──
+    const mk = (id, cls, html, label) => {
+      const el = document.createElement('button');
+      el.type = 'button'; el.id = id; if (cls) el.className = cls;
+      el.innerHTML = html; el.setAttribute('aria-label', label);
+      document.body.appendChild(el); cleanup.push(() => el.remove());
+      return el;
+    };
+    const toRead = mk('mv-toread', 'mv-btn', 'Read', 'Switch to the readable version');
+    on(toRead, 'click', () => { forced = 'read'; apply(); scrollTo(0, 0); });
+
+    const fs = mk('mv-fs', '', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg>', 'Toggle fullscreen');
+    on(fs, 'click', () => {
+      const d = document;
+      if (d.fullscreenElement || d.webkitFullscreenElement) {
+        (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+      } else {
+        const r = d.documentElement;
+        (r.requestFullscreen || r.webkitRequestFullscreen).call(r).catch(() => {});
+      }
+    });
+
+    const rot = document.createElement('div');
+    rot.id = 'mv-rotate'; rot.setAttribute('aria-hidden', 'true');
+    rot.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.7 3"/><path d="M19 3v4h-4"/><rect x="8" y="9" width="8" height="12" rx="1.5"/></svg><span>Rotate for full screen</span>';
+    document.body.appendChild(rot); cleanup.push(() => rot.remove());
+
+    const backBtn = document.getElementById('mv-toslides');
+    if (backBtn) on(backBtn, 'click', () => { forced = 'deck'; apply(); });
+
+    this._reader(on, cleanup, () => { forced = 'read'; apply(); });
+
+    // ── Swipe navigation (tap-left/right is already native to the deck) ──
+    let sx = 0, sy = 0, st = 0, swiped = 0;
+    on(deck, 'touchstart', (e) => {
+      if (e.touches.length !== 1) { st = 0; return; }
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = e.timeStamp;
+    }, { passive: true });
+    on(deck, 'touchend', (e) => {
+      if (!st || !e.changedTouches.length) return;
+      const dx = e.changedTouches[0].clientX - sx;
+      const dy = e.changedTouches[0].clientY - sy;
+      const dur = e.timeStamp - st;
+      st = 0;
+      if (dur > 800) return;
+      if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+      swiped = e.timeStamp || Date.now();
+      dx < 0 ? deck.next() : deck.prev();
+    }, { passive: true });
+    // A completed swipe must not also register as the deck's tap-to-advance.
+    on(window, 'click', (e) => {
+      if (swiped && (e.timeStamp || Date.now()) - swiped < 500) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+
+    // ── Shareable per-slide URLs (#1 .. #N), and restore on load ──
+    // When the deck is live the fragment also carries the room role, so
+    // live.html owns the format and this defers to it. Off-air it is #N as
+    // before. Without this an audience phone that reloads loses its room.
+    const LH = () => window.__liveHash;
+    const fmtHash = (n) => (LH() ? LH().fmt(n) : '#' + n);
+
+    let internal = false;
+    on(document, 'slidechange', (e) => {
+      const n = (e.detail && e.detail.index || 0) + 1;
+      const h = fmtHash(n);
+      if (location.hash !== h) { internal = true; history.replaceState(null, '', h); }
+    });
+    on(window, 'hashchange', () => {
+      if (internal) { internal = false; return; }
+      const n = LH() ? LH().parse() : parseInt(location.hash.slice(1), 10);
+      if (n > 0) deck.goTo(n - 1);
+    });
+    const entry = (window.__amEntry != null ? window.__amEntry : location.hash.slice(1));
+    const start = LH() ? LH().parseFrom(entry) : parseInt(entry, 10);
+    if (start > 1) { try { deck.goTo(start - 1); } catch (err) {} }
+
+    apply();
+  }
+
+  /* ── Reading-view navigator ───────────────────────────────────────
+     The deck has a thumbnail rail; the reading view had nothing, and it is
+     twelve sections and about 8,000px of scroll on a 375px phone. So the bar
+     title becomes a control: it names the section you are in, and opens an
+     index that jumps to any of them. Plus a progress hairline, a back-to-top,
+     and #r<n> so a section can be linked the way a slide can.
+
+     Scroll work is rAF-coalesced and touches only two CSS custom properties
+     and a class, so a scroll frame never reads layout. */
+  _reader(on, cleanup, goRead) {
+    const bar   = document.querySelector('.mv-bar');
+    const wrap  = document.querySelector('.mv-wrap');
+    const index = document.getElementById('mv-index');
+    const jump  = document.getElementById('mv-jump');
+    if (!bar || !wrap || !index || !jump) return;
+
+    const secs = [...wrap.querySelectorAll('article[data-nav]')];
+    if (!secs.length) return;
+    const num = (i) => String(i + 1).padStart(2, '0');
+    secs.forEach((el, i) => { el.id = 'r' + (i + 1); });
+
+    const jN = jump.querySelector('.mv-jump-n');
+    const jT = jump.querySelector('.mv-jump-t');
+
+    // ── index panel + scrim ──
+    secs.forEach((el, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = '<i></i><span></span>';
+      b.querySelector('i').textContent = num(i);
+      b.querySelector('span').textContent = el.dataset.nav;
+      on(b, 'click', () => { this._closeIndex(); this._goto(i); });
+      index.appendChild(b);
+    });
+    const marks = [...index.querySelectorAll('button')];
+
+    const scrim = document.createElement('div');
+    scrim.id = 'mv-scrim';
+    document.body.appendChild(scrim); cleanup.push(() => scrim.remove());
+    on(scrim, 'click', () => this._closeIndex());
+
+    const top = document.createElement('button');
+    top.type = 'button'; top.id = 'mv-top';
+    top.setAttribute('aria-label', 'Back to the top');
+    top.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
+    document.body.appendChild(top); cleanup.push(() => top.remove());
+    on(top, 'click', () => {
+      this._closeIndex();
+      scrollTo({ top: 0, behavior: this._smooth() });
+    });
+
+    this._closeIndex = () => {
+      document.body.classList.remove('mv-index-on');
+      jump.setAttribute('aria-expanded', 'false');
+    };
+    on(jump, 'click', () => {
+      const open = !document.body.classList.contains('mv-index-on');
+      document.body.classList.toggle('mv-index-on', open);
+      jump.setAttribute('aria-expanded', String(open));
+      if (open) {
+        const cur = index.querySelector('[aria-current="true"]');
+        if (cur) cur.scrollIntoView({ block: 'nearest' });
+      }
+    });
+    on(document, 'keydown', (e) => { if (e.key === 'Escape') this._closeIndex(); });
+
+    this._goto = (i) => {
+      const el = secs[i];
+      if (!el) return;
+      history.replaceState(null, '', '#r' + (i + 1));
+      el.scrollIntoView({ behavior: this._smooth(), block: 'start' });
+    };
+
+    // ── scroll state ──
+    let cur = -1, raf = null;
+    const barH = () => {
+      const h = Math.round(bar.getBoundingClientRect().height);
+      document.documentElement.style.setProperty('--mv-bar-h', h + 'px');
+      return h;
+    };
+    const read = () => {
+      raf = null;
+      const y = scrollY || document.documentElement.scrollTop;
+      const max = document.documentElement.scrollHeight - innerHeight;
+      const pct = max > 0 ? Math.min(100, Math.max(0, (y / max) * 100)) : 0;
+      document.documentElement.style.setProperty('--mv-p', pct.toFixed(2) + '%');
+      document.body.classList.toggle('mv-top-on', y > innerHeight * 0.9);
+
+      // The section whose top has passed just under the bar.
+      const line = barH() + 24;
+      let i = 0;
+      for (let k = 0; k < secs.length; k++) {
+        if (secs[k].getBoundingClientRect().top <= line) i = k; else break;
+      }
+      if (i !== cur) {
+        cur = i;
+        jN.textContent = num(i);
+        jT.textContent = secs[i].dataset.nav;
+        marks.forEach((b, k) => {
+          if (k === i) b.setAttribute('aria-current', 'true');
+          else b.removeAttribute('aria-current');
+        });
+      }
+    };
+    this._syncNav = () => { if (!raf) raf = requestAnimationFrame(read); };
+    on(window, 'scroll', this._syncNav, { passive: true });
+    on(window, 'resize', this._syncNav, { passive: true });
+
+    // ── entry: a #r<n> link, or a deck #<n> link opened on a phone ──
+    // Captured by the loader: by now deck-stage has already overwritten
+    // location.hash with the slide it decided to open on.
+    const h = (window.__amEntry != null ? window.__amEntry : location.hash.slice(1));
+    const rn = /^r(\d+)$/.exec(h);
+    const start = rn ? +rn[1] : +h;
+    if (rn) goRead();
+    if (start > 1 && start <= secs.length) {
+      // One rAF was not enough: the reading view has only just been given a
+      // display, deck-stage is still settling, and the browser restores its
+      // own scroll position afterwards -- the jump landed and was undone.
+      // Keep asking until the page actually moves, then stop.
+      try { history.scrollRestoration = 'manual'; } catch (e) {}
+      const target = secs[start - 1];
+      let tries = 0;
+      const land = () => {
+        target.scrollIntoView({ block: 'start' });
+        if (Math.round(scrollY) > 0) return;
+        // Only count a try the page was awake for: in a hidden tab the layout
+        // it needs may not have happened yet, and a fixed budget spent while
+        // throttled is the trap the mount poller used to fall into.
+        if (!document.hidden) tries++;
+        if (tries < 40) setTimeout(land, 60);
+      };
+      // Not requestAnimationFrame: it does not fire at all in a hidden tab,
+      // so the whole retry chain would never start.
+      land();
+    }
+    read();
+  }
+
+  _smooth() {
+    return matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+  }
+
+  componentWillUnmount() {
+    if (this._unmount) this._unmount();
+    document.removeEventListener('slidechange', this._onSlideChange);
+    window.removeEventListener('pointermove', this._onMove);
+    document.removeEventListener('mouseleave', this._onLeave);
+    window.removeEventListener('beforeprint', this._onLeave);
+    if (this._glow) this._glow.remove();
+    (this._cleanup || []).forEach((f) => { try { f(); } catch (e) {} });
+  }
+}
+
+</script>
+
+
+</body></html>
