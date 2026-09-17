@@ -513,6 +513,14 @@ var CSS = [
 '.lv-rtrack.on{border-color:#E2545C;color:#E2545C}',
 '.lv-react{display:flex;gap:8px;margin-top:14px}',
 '.lv-react button{flex:1;appearance:none;border:1px solid #33333C;background:#1D1D22;color:#B9B9C0;border-radius:10px;padding:12px 0;font:13px Arial,Helvetica,sans-serif;cursor:pointer}',
+'.lv-perf{position:fixed;z-index:2147483560;right:18px;top:18px;background:rgba(20,20,24,.86);border:1px solid #2A2A31;border-radius:10px;padding:8px 12px;font:12px/1.5 Arial,Helvetica,sans-serif;color:#9E9EA6;backdrop-filter:blur(6px);display:none}',
+'.lv-perf b{color:#F3F3F1;font-size:16px;font-variant-numeric:tabular-nums}',
+'.lv-perf.on{display:block}',
+'.lv-perf-bad b{color:#E2545C}',
+/* Lite mode: the ambience drift and the entrance blur are the two things
+   that cost real frames on a weak machine. Dropped together, never halfway. */
+'body.lv-lite .amb > div{animation:none!important}',
+'body.lv-lite [data-anim]{filter:none!important}',
 '.lv-flag{display:inline-flex;align-items:center;gap:6px;background:#2A1F22;border:1px solid #5C3238;color:#E2545C;border-radius:999px;padding:4px 10px;font-size:12px;margin-left:8px}'
 ].join('\n');
 
@@ -555,6 +563,85 @@ function statusDot() {
   d.innerHTML = '<i></i><span>connecting</span>';
   document.body.appendChild(d);
   return { el: d, set: function (s, text) { d.setAttribute('data-s', s); d.querySelector('span').textContent = text || s; } };
+}
+
+/* ══ Frames ═══════════════════════════════════════════════════════════════
+   Two jobs. Promote the active slide's drifting gradients to their own
+   compositor layers so the scale animation is a texture transform instead of
+   a repaint of a 1500px radial gradient every frame -- and only the active
+   slide, because `will-change` on all of them at once trades frames for
+   memory. Then watch the frame clock: if the machine is genuinely dropping
+   frames, shed the ambience and the entrance blur rather than stutter through
+   the whole talk. The verdict is remembered per machine.
+
+   Press P for the meter -- worth doing once on the projector laptop, since
+   that is the machine that matters and it is never the one you built on. */
+function mountPerf(deck) {
+  var LITE = 'lv-lite-mode';
+  try { if (localStorage.getItem(LITE) === '1') document.body.classList.add('lv-lite'); } catch (e) {}
+
+  var hud = document.createElement('div');
+  hud.className = 'lv-perf';
+  hud.innerHTML = '<b>--</b> fps <span class="lv-perf-n"></span>';
+  document.body.appendChild(hud);
+
+  function promote() {
+    slides().forEach(function (s, i) {
+      var amb = s.querySelector('.amb');
+      if (!amb) return;
+      var on = (i === deck.index);
+      Array.prototype.forEach.call(amb.children, function (l) {
+        l.style.willChange = on ? 'transform' : '';
+      });
+    });
+  }
+  promote();
+  document.addEventListener('slidechange', promote);
+
+  var frames = [], last = 0, settled = false, dropped = 0;
+  try { settled = localStorage.getItem(LITE) != null; } catch (e) {}
+
+  function tick(t) {
+    if (last) {
+      var dt = t - last;
+      frames.push(dt);
+      if (dt > 32) dropped++;
+      if (frames.length > 90) frames.shift();
+    }
+    last = t;
+
+    if (hud.classList.contains('on') && frames.length > 8) {
+      var sorted = frames.slice().sort(function (a, b) { return a - b; });
+      var med = sorted[sorted.length >> 1];
+      var fps = Math.round(1000 / med);
+      hud.querySelector('b').textContent = fps;
+      hud.querySelector('.lv-perf-n').textContent = '· ' + dropped + ' dropped';
+      hud.classList.toggle('lv-perf-bad', fps < 45);
+    }
+
+    /* One verdict, after enough frames to mean something, and only while the
+       page is actually visible -- a backgrounded tab reports nonsense. */
+    if (!settled && frames.length >= 90 && document.visibilityState === 'visible') {
+      var s2 = frames.slice().sort(function (a, b) { return a - b; });
+      var median = s2[s2.length >> 1];
+      settled = true;
+      if (median > 24) {
+        document.body.classList.add('lv-lite');
+        try { localStorage.setItem(LITE, '1'); } catch (e) {}
+      } else {
+        try { localStorage.setItem(LITE, '0'); } catch (e) {}
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  window.addEventListener('keydown', function (e) {
+    if (e.key !== 'p' && e.key !== 'P') return;
+    if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+    dropped = 0;
+    hud.classList.toggle('on');
+  });
 }
 
 /* ══ Stage ════════════════════════════════════════════════════════════════ */
@@ -627,11 +714,16 @@ function runStage(deck) {
      so nothing is broadcast until the deck is actually ready. */
   var warming = true;
 
-  function cast() {
-    if (warming) return;
+  /* A phone that scans the code while the stage is still preparing must still
+     get an answer, or it sits blank forever waiting for a reply that only ever
+     came from a broadcast it already missed. `hello` is always answered; only
+     the unsolicited per-slide broadcasts wait for ready. */
+  function castNow() {
     state.max = Math.max(state.max, state.i);
+    state.ready = !warming;
     room.cast('state', state);
   }
+  function cast() { if (warming) return; castNow(); }
 
   document.addEventListener('slidechange', function (e) {
     state.i = (e.detail && e.detail.index) || 0;
@@ -640,8 +732,8 @@ function runStage(deck) {
   });
 
   function onEvent(ev, p) {
-    if (ev === 'hello') { cast(); return; }
-    if (ev === '_joined') { cast(); return; }
+    if (ev === 'hello') { castNow(); return; }
+    if (ev === '_joined') { castNow(); return; }
     if (ev === '_peers') {
       var a = room.countRole('audience');
       panel.querySelector('.lv-count').textContent = a + (a === 1 ? ' phone' : ' phones');
@@ -685,6 +777,7 @@ function runStage(deck) {
 
   preflight(deck, room, function () {}).then(function (ok) {
     warming = false;
+    mountPerf(deck);
     try { state.i = deck.index || 0; } catch (e) {}
     state.t0 = Date.now();                       // the clock starts when ready
     dot.set(ok ? 'live' : 'offline', ok ? (code + ' · 0 joined') : 'offline — deck still works');
@@ -707,8 +800,8 @@ function runRemote(code, tok) {
     '<div class="lv-rtop"><span class="lv-rtime">0:00</span><span class="lv-sub lv-rstatus">connecting</span>' +
       '<span class="lv-rpos">— / —</span></div>' +
     '<div class="lv-rbody">' +
-      '<p class="lv-rlabel"></p>' +
-      '<p class="lv-rnotes"></p>' +
+      '<p class="lv-rlabel">Waiting for the stage</p>' +
+      '<p class="lv-rnotes">Check the laptop is live — press L on the deck. This fills in the moment it answers.</p>' +
       '<div class="lv-rtrack">drag here to point</div>' +
       '<div class="lv-rnext"></div>' +
     '</div>' +
@@ -747,14 +840,48 @@ function runRemote(code, tok) {
     pad.addEventListener(ev, function () { pad.classList.remove('on'); room.cast('ptr', { on: false, tok: tok }); });
   });
 
+  /* Ask until answered. One `hello` is a single point of failure: if it is
+     sent while the stage is mid-preflight, or lost, or the stage reloads, the
+     remote would stay blank with no way back. */
+  var gotState = false;
+  function helloLoop() {
+    if (gotState) return;
+    room.cast('hello', {});
+    setTimeout(helloLoop, 1500);
+  }
+
+  function render() {
+    if (!st || st.n == null) return;
+    /* While the stage is still warming, its index is wherever the preflight
+       walk has got to -- not a place the presenter is. Say so instead of
+       showing a number that is about to jump. */
+    if (st.ready === false) {
+      q('.lv-rpos').textContent = '— / ' + st.n;
+      q('.lv-rlabel').textContent = 'Stage is preparing';
+      q('.lv-rnotes').textContent = 'The deck is loading itself in. Controls light up in a moment.';
+      q('.lv-rnext').textContent = '';
+      return;
+    }
+    q('.lv-rpos').textContent = (st.i + 1) + ' / ' + st.n;
+    q('.lv-rlabel').textContent = labelFor(st.i);
+    q('.lv-rnotes').textContent = notesFor(st.i) || 'No notes on this slide.';
+    q('.lv-rnext').textContent = (st.i + 1 < st.n) ? ('NEXT · ' + labelFor(st.i + 1)) : 'Last slide.';
+  }
+
+  /* The remote never waits for deck-stage, so on a slow phone the first state
+     can land before the slides exist and the notes would read as empty for the
+     rest of the talk. Re-render once they show up. */
+  (function awaitSlides() {
+    if (slides().length) { render(); return; }
+    setTimeout(awaitSlides, 150);
+  })();
+
   function onEvent(ev, p) {
-    if (ev === '_joined') { room.cast('hello', {}); return; }
+    if (ev === '_joined') { helloLoop(); return; }
     if (ev !== 'state') return;
+    gotState = true;
     st = p;
-    q('.lv-rpos').textContent = (p.i + 1) + ' / ' + p.n;
-    q('.lv-rlabel').textContent = labelFor(p.i);
-    q('.lv-rnotes').textContent = notesFor(p.i) || 'No notes on this slide.';
-    q('.lv-rnext').textContent = (p.i + 1 < p.n) ? ('NEXT · ' + labelFor(p.i + 1)) : 'Last slide.';
+    render();
   }
 
   setInterval(function () {
@@ -819,9 +946,20 @@ function runAudience(deck, code) {
     if (document.body.classList.contains('mv-on')) pinReading(i);
   }
 
+  var gotState = false;
+  function helloLoop() {
+    if (gotState) return;
+    room.cast('hello', {});
+    setTimeout(helloLoop, 1500);
+  }
+
   function onEvent(ev, p) {
-    if (ev === '_joined') { room.cast('hello', {}); return; }
+    if (ev === '_joined') { helloLoop(); return; }
     if (ev !== 'state') return;
+    gotState = true;
+    /* A stage mid-preflight is walking every slide to warm it. Following that
+       would drag every phone in the room through the whole deck at speed. */
+    if (p.ready === false) { dot.set('live', 'waiting for the stage'); return; }
     live = p.i; maxSeen = Math.max(maxSeen, p.max || p.i);
     if (p.mode !== mode) { mode = p.mode; applyLock(); }
     if (mode === 'open') { showBack(false); return; }
