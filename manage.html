@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Presentations — UnoPresentation</title>
+<meta name="description" content="Upload, switch between and manage live presentation decks.">
+<meta name="theme-color" content="#101013">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root{
+    --bg:#101013; --ground:#161619; --panel:#1C1C21; --panel2:#17171B;
+    --line:#2B2B33; --line2:#3A3A44;
+    --ink:#F3F3F1; --mute:#9E9EA6; --dim:#7C7C85; --accent:#E2545C;
+    --ok:#3C9E5A; --warn:#C8A23A;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%}
+  body{min-height:100dvh}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{color:var(--ink)}
+
+  .amb{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+  .amb i{position:absolute;display:block;border-radius:50%}
+  .amb i:nth-child(1){width:1100px;height:1100px;left:-300px;top:-380px;background:radial-gradient(circle,#2B1F26 0%,rgba(43,31,38,.4) 42%,rgba(22,22,25,0) 72%)}
+  .amb i:nth-child(2){width:900px;height:900px;right:-240px;bottom:-320px;background:radial-gradient(circle,rgba(226,84,92,.09) 0%,rgba(226,84,92,.03) 42%,rgba(22,22,25,0) 72%)}
+
+  .wrap{position:relative;z-index:1;max-width:1040px;margin:0 auto;padding:48px 24px 96px}
+  @media(max-width:640px){.wrap{padding:28px 16px 80px}}
+
+  header.top{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:34px}
+  .eyebrow{font-size:12px;font-weight:700;letter-spacing:.3em;color:var(--accent)}
+  h1{margin:10px 0 0;font-size:40px;line-height:1.1;letter-spacing:-.025em;flex-basis:100%}
+  @media(max-width:640px){h1{font-size:30px}}
+  .who{margin-left:auto;font-size:13px;color:var(--dim);display:flex;align-items:center;gap:10px}
+
+  .btn{appearance:none;border:1px solid var(--line2);background:#232329;color:var(--ink);border-radius:9px;padding:9px 14px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:#55555F}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+  .btn-primary:hover{background:#d0444c;border-color:#d0444c;color:#fff}
+  .btn-quiet{background:transparent;border-color:transparent;color:var(--dim);padding:9px 8px}
+  .btn-quiet:hover{color:var(--ink);border-color:var(--line)}
+  .btn-danger:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* ── Sign in ─────────────────────────────────────────────── */
+  .gate{max-width:420px;margin:12vh auto 0;text-align:center}
+  .gate p{color:var(--mute);font-size:15px;line-height:1.6}
+  .gate form{display:flex;gap:8px;margin-top:22px}
+  .gate input{flex:1;min-width:0}
+  input[type=email],input[type=text]{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:11px 13px;color:var(--ink);font:inherit;font-size:14px}
+  input:focus{outline:none;border-color:var(--accent)}
+
+  /* ── Drop zone ───────────────────────────────────────────── */
+  .drop{border:1px dashed var(--line2);border-radius:16px;padding:34px 24px;text-align:center;color:var(--mute);transition:border-color .15s,background .15s;cursor:pointer}
+  .drop:hover,.drop.over{border-color:var(--accent);background:rgba(226,84,92,.05);color:var(--ink)}
+  .drop b{display:block;color:var(--ink);font-size:17px;margin-bottom:6px}
+  .drop small{font-size:13px;color:var(--dim)}
+
+  /* ── Deck list ───────────────────────────────────────────── */
+  .list{margin-top:30px;display:flex;flex-direction:column;gap:12px}
+  .deck{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;display:flex;align-items:center;gap:18px}
+  @media(max-width:720px){.deck{flex-wrap:wrap;gap:12px}}
+  .deck-main{flex:1;min-width:0}
+  .deck-name{font-size:19px;font-weight:700;letter-spacing:-.01em;word-break:break-word}
+  .deck-meta{margin-top:5px;font-size:12.5px;color:var(--dim);display:flex;gap:14px;flex-wrap:wrap}
+  .deck-acts{display:flex;gap:7px;flex-wrap:wrap}
+  .tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;letter-spacing:.06em;border-radius:999px;padding:3px 9px;border:1px solid var(--line2);color:var(--dim)}
+  .tag-live{border-color:#2F5C3E;color:var(--ok)}
+  .tag-warn{border-color:#5C4E2F;color:var(--warn)}
+
+  .empty{text-align:center;color:var(--dim);padding:44px 20px;font-size:15px;line-height:1.6}
+
+  /* ── Toast / status ──────────────────────────────────────── */
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:50;background:#1E1E24;border:1px solid var(--line2);border-radius:10px;padding:12px 18px;font-size:14px;box-shadow:0 14px 40px rgba(0,0,0,.5);max-width:calc(100vw - 32px)}
+  .toast.err{border-color:var(--accent);color:#FFD9DB}
+  .bar{height:3px;background:#2A2A31;border-radius:2px;overflow:hidden;margin-top:14px}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  .hide{display:none!important}
+</style>
+</head>
+<body>
+<div class="amb" aria-hidden="true"><i></i><i></i></div>
+
+<div class="wrap">
+  <header class="top">
+    <div style="flex:1 1 100%;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div class="eyebrow">UNOPRESENTATION</div>
+        <h1>Presentations</h1>
+      </div>
+      <div class="who hide" id="who">
+        <span id="whoEmail"></span>
+        <button class="btn btn-quiet" id="signOut">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sign in -->
+  <section class="gate hide" id="gate">
+    <div class="eyebrow" style="letter-spacing:.24em">SIGN IN</div>
+    <p style="margin-top:14px">This is where your decks live. Enter your email and you will get a link
+      back to this page — no password.</p>
+    <form id="gateForm">
+      <input type="email" id="email" placeholder="you@example.com" autocomplete="email" required>
+      <button class="btn btn-primary" type="submit">Send link</button>
+    </form>
+    <p id="gateMsg" style="margin-top:16px;font-size:13.5px"></p>
+  </section>
+
+  <!-- Dashboard -->
+  <section class="hide" id="app">
+    <div class="drop" id="drop" role="button" tabindex="0">
+      <b>Drop a deck here, or choose a file</b>
+      <small>An <code>index.html</code> built by this project. It is read before upload, never blindly stored.</small>
+      <div class="bar hide" id="upBar"><i></i></div>
+      <input type="file" id="file" accept=".html,text/html" class="hide" multiple>
+    </div>
+
+    <div class="list" id="list"></div>
+    <div class="empty hide" id="empty">
+      No decks yet.<br>Build one with <code>python build/build.py</code> and drop the <code>index.html</code> above.
+    </div>
+  </section>
+</div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const SUPABASE_URL = 'https://wbmzoscwlaanwtiloufs.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndibXpvc2N3bGFhbnd0aWxvdWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1NzI1MzgsImV4cCI6MjEwNTE0ODUzOH0.4tyil0h-VK4Ezg26XtZQhuxvHIrKewrMYTmqt3CaQ6o';
+const BUCKET = 'decks';
+
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = (s) => document.querySelector(s);
+
+function toast(msg, isErr) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (isErr ? ' err' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), isErr ? 7000 : 3200);
+}
+const fmtSize = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
+const fmtWhen = (iso) => {
+  const d = new Date(iso), diff = (Date.now() - d) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+  return d.toLocaleDateString();
+};
+const slugify = (s) => s.toLowerCase().replace(/\.html?$/, '').replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-|-$/g, '').slice(0, 48) || 'deck';
+
+/* ── Auth ─────────────────────────────────────────────────── */
+let user = null;
+
+async function boot() {
+  const { data } = await sb.auth.getSession();
+  setUser(data.session?.user || null);
+  sb.auth.onAuthStateChange((_e, s) => setUser(s?.user || null));
+}
+
+function setUser(u) {
+  const was = user?.id;
+  user = u;
+  $('#gate').classList.toggle('hide', !!u);
+  $('#app').classList.toggle('hide', !u);
+  $('#who').classList.toggle('hide', !u);
+  if (u) {
+    $('#whoEmail').textContent = u.email || 'signed in';
+    if (was !== u.id) refresh();
+  }
+}
+
+$('#gateForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = $('#email').value.trim();
+  if (!email) return;
+  $('#gateMsg').textContent = 'Sending…';
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: location.origin + location.pathname }
+  });
+  $('#gateMsg').innerHTML = error
+    ? '<span style="color:var(--accent)">' + error.message + '</span>'
+    : 'Check <b>' + email + '</b> for a link. Open it on this device.';
+});
+
+$('#signOut').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  $('#list').innerHTML = '';
+});
+
+/* ── Reading a deck before it is stored ───────────────────────
+   Uploading a file you have not looked at is how a dashboard ends up
+   serving something that is not a deck at all. Parse it, count the
+   artboards, and say plainly whether the live layer is in there. */
+async function inspect(file) {
+  const text = await file.text();
+  const doc = new DOMParser().parseFromString(text, 'text/html');
+  const title = (doc.querySelector('title')?.textContent || '').trim();
+
+  // Slides ride inside the bundler template, not the parsed DOM, so count
+  // from the raw source as well and take whichever found more.
+  const domCount = doc.querySelectorAll('section[data-label]').length;
+  const rawCount = (text.match(/<section[^>]*\sdata-label=/g) || []).length;
+  const slides = Math.max(domCount, rawCount);
+
+  const hasDeck = /deck-stage/.test(text);
+  const hasLive = /lv-stage-panel|__liveHash/.test(text);
+  return { text, title, slides, hasDeck, hasLive, size: file.size };
+}
+
+/* ── Upload ───────────────────────────────────────────────── */
+async function upload(files) {
+  const bar = $('#upBar'), fill = bar.querySelector('i');
+  bar.classList.remove('hide');
+  let done = 0;
+
+  for (const file of files) {
+    fill.style.width = Math.round((done / files.length) * 100) + '%';
+    try {
+      if (!/\.html?$/i.test(file.name)) { toast(file.name + ' is not an HTML file', true); continue; }
+      const info = await inspect(file);
+      if (!info.hasDeck) {
+        toast(file.name + ' does not look like a deck — no deck-stage inside', true);
+        continue;
+      }
+
+      const name = info.title || file.name.replace(/\.html?$/i, '');
+      const slug = slugify(name);
+      const path = `${user.id}/${slug}-${Date.now().toString(36)}.html`;
+
+      const { error: upErr } = await sb.storage.from(BUCKET)
+        .upload(path, new Blob([info.text], { type: 'text/html' }), {
+          contentType: 'text/html', cacheControl: '60', upsert: false
+        });
+      if (upErr) throw upErr;
+
+      const { error: rowErr } = await sb.from('decks').insert({
+        slug, name, path, size_bytes: info.size, slides: info.slides,
+        notes: info.hasLive ? null : 'no-live-layer'
+      });
+      if (rowErr) { await sb.storage.from(BUCKET).remove([path]); throw rowErr; }
+
+      toast(`${name} uploaded — ${info.slides} slide${info.slides === 1 ? '' : 's'}`);
+      if (!info.hasLive) toast(`${name} has no live layer: it will present, but phones cannot follow it`, true);
+    } catch (err) {
+      toast((err.message || String(err)).slice(0, 180), true);
+    }
+    done++;
+  }
+  fill.style.width = '100%';
+  setTimeout(() => { bar.classList.add('hide'); fill.style.width = '0'; }, 400);
+  refresh();
+}
+
+/* ── List ─────────────────────────────────────────────────── */
+const publicUrl = (path) => sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+
+async function refresh() {
+  const { data, error } = await sb.from('decks').select('*').order('updated_at', { ascending: false });
+  if (error) { toast(error.message, true); return; }
+  render(data || []);
+}
+
+function render(decks) {
+  const list = $('#list');
+  list.innerHTML = '';
+  $('#empty').classList.toggle('hide', decks.length > 0);
+
+  for (const d of decks) {
+    const url = publicUrl(d.path);
+    const el = document.createElement('div');
+    el.className = 'deck';
+    el.innerHTML = `
+      <div class="deck-main">
+        <div class="deck-name"></div>
+        <div class="deck-meta">
+          <span>${d.slides || '?'} slides</span>
+          <span>${d.size_bytes ? fmtSize(d.size_bytes) : ''}</span>
+          <span>updated ${fmtWhen(d.updated_at)}</span>
+          ${d.notes === 'no-live-layer'
+            ? '<span class="tag tag-warn">no live layer</span>'
+            : '<span class="tag tag-live">live ready</span>'}
+        </div>
+      </div>
+      <div class="deck-acts">
+        <button class="btn btn-primary" data-act="present">Present</button>
+        <button class="btn" data-act="open">Open</button>
+        <button class="btn" data-act="link">Copy link</button>
+        <button class="btn btn-quiet" data-act="rename">Rename</button>
+        <button class="btn btn-quiet btn-danger" data-act="delete">Delete</button>
+      </div>`;
+    el.querySelector('.deck-name').textContent = d.name;
+
+    el.addEventListener('click', async (e) => {
+      const act = e.target.getAttribute && e.target.getAttribute('data-act');
+      if (!act) return;
+
+      if (act === 'present') window.open(url + '#live', '_blank', 'noopener');
+      if (act === 'open') window.open(url, '_blank', 'noopener');
+      if (act === 'link') {
+        try { await navigator.clipboard.writeText(url); toast('Link copied'); }
+        catch { toast(url, false); }
+      }
+      if (act === 'rename') {
+        const next = prompt('Name this presentation', d.name);
+        if (next == null) return;
+        const trimmed = next.trim();
+        if (!trimmed || trimmed === d.name) return;
+        const { error } = await sb.from('decks')
+          .update({ name: trimmed, slug: slugify(trimmed) }).eq('id', d.id);
+        if (error) toast(error.message, true); else { toast('Renamed'); refresh(); }
+      }
+      if (act === 'delete') {
+        if (!confirm(`Delete "${d.name}"?\n\nThe file is removed for good and any link to it stops working.`)) return;
+        const { error } = await sb.from('decks').delete().eq('id', d.id);
+        if (error) { toast(error.message, true); return; }
+        await sb.storage.from(BUCKET).remove([d.path]);
+        toast('Deleted');
+        refresh();
+      }
+    });
+    list.appendChild(el);
+  }
+}
+
+/* ── Drop zone wiring ─────────────────────────────────────── */
+const drop = $('#drop'), fileInput = $('#file');
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) upload([...fileInput.files]); fileInput.value = ''; });
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => {
+  const files = [...(e.dataTransfer?.files || [])];
+  if (files.length) upload(files);
+});
+
+boot();
+</script>
+</body>
+</html>
