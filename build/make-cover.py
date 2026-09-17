@@ -3,7 +3,7 @@
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-OUT = Path(__file__).parent.parent / "og-cover.jpg"
+OUT = Path(__file__).parent.parent / "demo" / "og-cover.jpg"
 W, H = 1200, 630
 
 BG      = (22, 22, 25)

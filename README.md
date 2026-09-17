@@ -8,10 +8,14 @@ slide you are on right now — when you advance, their screens advance. Scan the
 yourself and your phone becomes the remote: next and back, your speaker notes at full size, a
 running timer, and a pointer you drag with your thumb.
 
-**Live:** https://unorfl.github.io/UnoPresentation/
+**Dashboard:** https://unorfl.github.io/UnoPresentation/ — sign in, and every deck you have
+uploaded is there. One is marked *now presenting*; hit **Start presenting** and it opens ready
+to go. `…/dashboard` lands in the same place.
 
-Built for my own talks, not as a product. The whole thing is one self-contained `index.html` —
-no build server, no app to install, nothing to sign in to.
+**The demo deck:** https://unorfl.github.io/UnoPresentation/demo/
+
+Built for my own talks, not as a product. Each deck is one self-contained `index.html` — no
+build server, no app to install, nothing for the audience to sign in to.
 
 ---
 
@@ -60,8 +64,11 @@ never take the presentation down with it.
 ## Authoring a new talk
 
 ```
+index.html          the dashboard -- sign in, upload, pick what is live
+dashboard/          redirects to the dashboard
+demo/index.html     the demo deck, built from build/
 build/
-  build.py          assembles ../index.html from the parts
+  build.py          assembles ../demo/index.html from the parts
   make-cover.py     renders og-cover.jpg, the link preview
   parts/
     loader.html     <head> + the runtime unpacker

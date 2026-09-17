@@ -1,4 +1,4 @@
-"""Assemble ../index.html from the parts in this folder.
+"""Assemble ../demo/index.html from the parts in this folder.
 
     python build.py
 
@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 
 HERE = Path(__file__).parent
-OUT = HERE.parent / "index.html"
+OUT = HERE.parent / "demo" / "index.html"
 
 TITLE = "UnoPresentation — The Deck That Follows You"
 DESC = ("A live-sync HTML presentation: put it on a projector, let the room scan a QR code, and every phone follows the slide you are on. Your own phone becomes the remote, with speaker notes, a timer and a pointer.")
@@ -87,7 +87,7 @@ def main():
         "\n  </script>\n</body>\n",
     ])
     OUT.write_text(index, encoding="utf-8")
-    print("index.html  %d bytes  build %s" % (len(index.encode("utf-8")), build_id))
+    print("demo/index.html  %d bytes  build %s" % (len(index.encode("utf-8")), build_id))
 
 
 if __name__ == "__main__":
