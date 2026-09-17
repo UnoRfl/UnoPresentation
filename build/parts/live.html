@@ -539,7 +539,17 @@ function injectCss() { var s = document.createElement('style'); s.textContent = 
 var hashPrefix = null;
 window.__liveHash = {
   fmt: function (n) { return hashPrefix ? '#' + hashPrefix + '/' + n : '#' + n; },
-  parse: function () { return this.parseFrom(location.hash); },
+  /* Older deck-stage builds write their own `#N` by assigning location.hash,
+     which fires hashchange. Read as a navigation, that yanks the deck to
+     whatever slide the runtime just announced and fights whoever is driving.
+     While live, only our own format counts as somebody asking to move. */
+  parse: function () {
+    if (hashPrefix && !this.own(location.hash)) return NaN;
+    return this.parseFrom(location.hash);
+  },
+  own: function (h) {
+    return !!hashPrefix && String(h).replace(/^#/, '').indexOf(hashPrefix) === 0;
+  },
   /* Reads a slide number out of either scheme, so the entry the loader
      captured works whether or not the link was a live one. */
   parseFrom: function (h) {
@@ -561,6 +571,22 @@ function readRole() {
   if ((m = /^ctl=([A-Z0-9]+)\.([A-Za-z0-9]+)/.exec(h))) return { role: 'remote', code: m[1], tok: m[2] };
   if ((m = /^join=([A-Z0-9]+)/.exec(h))) return { role: 'audience', code: m[1] };
   return null;
+}
+
+/* The same older runtimes overwrite the fragment outright, so the room would
+   vanish from the URL and a reload would lose it. Put it back whenever it is
+   clobbered -- replaceState does not fire hashchange, so this cannot loop. */
+function guardHash(deck) {
+  function reassert() {
+    if (!hashPrefix) return;
+    if (window.__liveHash.own(location.hash)) return;
+    var n = 1;
+    try { n = (deck.index || 0) + 1; } catch (e) {}
+    try { history.replaceState(null, '', window.__liveHash.fmt(n)); } catch (e) {}
+  }
+  window.addEventListener('hashchange', reassert);
+  document.addEventListener('slidechange', function () { setTimeout(reassert, 0); });
+  setTimeout(reassert, 0);
 }
 
 function statusDot() {
@@ -657,6 +683,7 @@ function runStage(deck) {
   var state = { i: 0, n: slides().length, mode: 'follow', max: 0, t0: Date.now(), blank: false };
   var reacts = {};                                  // id -> timestamp of last "lost"
 
+  guardHash(deck);
   var dot = statusDot();
   var room = new Room(code, 'stage', onEvent, function (s) {
     dot.set(s, s === 'live' ? (code + ' · ' + room.countRole('audience') + ' joined') : s);
@@ -905,6 +932,7 @@ function runAudience(deck, code) {
   /* Slide changes this code causes -- the preflight walk, and following the
      stage -- must not read as the viewer deliberately breaking away. */
   var warming = true, programmatic = 0;
+  guardHash(deck);
   var dot = statusDot();
   var room = new Room(code, 'audience', onEvent, function (s) { dot.set(s, s === 'live' ? 'following' : s); });
   room.connect();
