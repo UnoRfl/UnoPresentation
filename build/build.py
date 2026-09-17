@@ -19,6 +19,7 @@ Edit a part, run this, and index.html is rebuilt. og-cover.jpg is separate:
 python make-cover.py.
 """
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -70,6 +71,12 @@ def main():
         "",
     ])
 
+    # A short digest of the assembled template. It changes whenever any part
+    # changes, and rides in every QR so a phone always fetches this build
+    # rather than whatever its browser cached from the last one.
+    build_id = hashlib.sha1(template.encode("utf-8")).hexdigest()[:8]
+    template = template.replace("__BUILD__", build_id)
+
     index = "".join([
         read("loader.html"),
         read("assets.html"),
@@ -80,7 +87,7 @@ def main():
         "\n  </script>\n</body>\n",
     ])
     OUT.write_text(index, encoding="utf-8")
-    print("index.html  %d bytes" % len(index.encode("utf-8")))
+    print("index.html  %d bytes  build %s" % (len(index.encode("utf-8")), build_id))
 
 
 if __name__ == "__main__":

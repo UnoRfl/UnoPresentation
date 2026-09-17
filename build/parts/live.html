@@ -18,6 +18,12 @@
 (function () {
 'use strict';
 
+/* Stamped by build.py. It rides in every QR so a phone scanning the code
+   cannot be handed a stale copy out of its cache -- GitHub Pages serves this
+   file with max-age=600 and Safari holds it longer, and the fragment-only URL
+   the QR used to carry gave the browser no reason to refetch. */
+var BUILD = '__BUILD__';
+
 var CFG = {
   ws:  'wss://wbmzoscwlaanwtiloufs.supabase.co/realtime/v1/websocket',
   key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndibXpvc2N3bGFhbnd0aWxvdWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1NzI1MzgsImV4cCI6MjEwNTE0ODUzOH0.4tyil0h-VK4Ezg26XtZQhuxvHIrKewrMYTmqt3CaQ6o'
@@ -657,7 +663,7 @@ function runStage(deck) {
   });
   room.connect();
 
-  var base = location.origin + location.pathname;
+  var base = location.origin + location.pathname + '?b=' + BUILD;
   var joinUrl = base + '#join=' + code;
   var remoteUrl = base + '#ctl=' + code + '.' + tok;
 
@@ -680,7 +686,8 @@ function runStage(deck) {
       '<button class="lv-btn" data-mode="open">Open</button>' +
     '</div>' +
     '<div class="lv-row" style="margin-top:10px"><span class="lv-sub lv-count">0 phones</span>' +
-      '<span class="lv-sub lv-lost" style="margin-left:auto"></span></div>';
+      '<span class="lv-sub lv-lost" style="margin-left:auto"></span></div>' +
+      '<div class="lv-sub" style="margin-top:8px;opacity:.5;font-size:10px;letter-spacing:.14em">BUILD ' + BUILD + '</div>';
   document.body.appendChild(panel);
   panel.dataset.join = joinUrl;
   panel.dataset.remote = remoteUrl;
@@ -814,7 +821,7 @@ function runRemote(code, tok) {
   document.body.style.overflow = 'hidden';
 
   var q = function (s) { return ui.querySelector(s); };
-  var room = new Room(code, 'remote', onEvent, function (s) { q('.lv-rstatus').textContent = s; });
+  var room = new Room(code, 'remote', onEvent, function (s) { q('.lv-rstatus').textContent = s + ' · ' + BUILD; });
   room.connect();
   wakeLock();
 
