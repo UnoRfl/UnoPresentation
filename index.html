@@ -92,6 +92,18 @@
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:50;background:#1E1E24;border:1px solid var(--line2);border-radius:10px;padding:12px 18px;font-size:14px;box-shadow:0 14px 40px rgba(0,0,0,.5);max-width:calc(100vw - 32px)}
   .toast.err{border-color:var(--accent);color:#FFD9DB}
   .hide{display:none!important}
+
+  /* ── Rescue: a link that landed on the wrong host ─────────── */
+  .rescue{margin-top:20px;text-align:left;border:1px solid var(--line);border-radius:11px;background:var(--panel2);padding:0 14px}
+  .rescue summary{cursor:pointer;color:var(--mute);font-size:13px;padding:12px 0;list-style:none}
+  .rescue summary::-webkit-details-marker{display:none}
+  .rescue summary:before{content:'+ ';color:var(--accent);font-weight:700}
+  .rescue[open] summary:before{content:'– '}
+  .rescue summary:hover{color:var(--ink)}
+  .rescue p{font-size:12.5px;color:var(--dim);line-height:1.6;margin:0 0 12px}
+  .rescue form{display:flex;gap:8px;margin:0 0 14px}
+  .rescue input{flex:1;min-width:0;background:#0C0C0E;border:1px solid var(--line);border-radius:9px;padding:10px 12px;color:var(--ink);font:inherit;font-size:12.5px}
+  .rescue input:focus{outline:none;border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -119,6 +131,18 @@
       <button class="btn btn-go" style="font-size:13px;padding:11px 16px" type="submit">Send link</button>
     </form>
     <p id="gateMsg" style="margin-top:16px;font-size:13.5px"></p>
+
+    <details class="rescue" id="rescue">
+      <summary>Link sent you to <code>localhost:3000</code>?</summary>
+      <p>That is Supabase's default address, not a fault in the link — the sign-in is still
+         in it. Copy the whole address from that page and paste it here.</p>
+      <form id="rescueForm">
+        <input type="text" id="pasted" placeholder="localhost:3000/#access_token=…" spellcheck="false">
+        <button class="btn" type="submit">Sign me in</button>
+      </form>
+      <p id="rescueMsg"></p>
+    </details>
+
     <p style="margin-top:20px;font-size:12.5px;color:var(--dim);line-height:1.6">
       The link works once and expires after an hour. If it fails, just send another.
     </p>
@@ -219,6 +243,48 @@ $('#gateForm').addEventListener('submit', async (e) => {
   $('#gateMsg').innerHTML = error
     ? '<span style="color:var(--accent)">' + error.message + '</span>'
     : 'Check <b>' + email + '</b> for a link. Open it on this device.';
+});
+
+/* Supabase redirects to its configured Site URL, and if that is still the
+   default the link lands on localhost:3000 with nothing listening. The sign-in
+   itself is fine -- the tokens are right there in the fragment -- so rather
+   than make a dashboard setting the only way in, accept the pasted address and
+   finish the job here. */
+$('#rescueForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = $('#rescueMsg');
+  const raw = $('#pasted').value.trim();
+  const frag = raw.slice(raw.indexOf('#') + 1);
+  const q = new URLSearchParams(frag);
+  const access_token = q.get('access_token'), refresh_token = q.get('refresh_token');
+  if (!access_token || !refresh_token) {
+    msg.innerHTML = '<span style="color:var(--accent)">That address has no sign-in on it. Copy the whole thing, starting at <code>localhost</code>.</span>';
+    return;
+  }
+  msg.textContent = 'Signing in…';
+  /* A half-copied address gives a malformed JWT, and setSession *rejects* on
+     that ("Invalid UTF-8 sequence") rather than returning an error -- so
+     without the catch the await throws and this is left reading "Signing in…"
+     for good. The timeout is the separate case of a request that never lands. */
+  const friendly = 'That did not work. The link may have expired, or the address was cut short — send a fresh link and copy the whole thing.';
+  let error = null;
+  try {
+    const out = await Promise.race([
+      sb.auth.setSession({ access_token, refresh_token }),
+      new Promise((r) => setTimeout(() => r({ error: { message: friendly } }), 12000))
+    ]);
+    error = out && out.error;
+  } catch (err) {
+    error = { message: friendly };
+  }
+  if (error) {
+    msg.innerHTML = '<span style="color:var(--accent)">' + error.message + '</span>';
+  } else {
+    msg.textContent = '';
+    $('#pasted').value = '';
+    $('#rescue').open = false;
+    toast('Signed in');
+  }
 });
 
 $('#signOut').addEventListener('click', async () => {
