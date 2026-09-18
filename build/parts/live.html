@@ -690,7 +690,16 @@ function runStage(deck) {
   });
   room.connect();
 
-  var base = location.origin + location.pathname + '?b=' + BUILD;
+  /* Keep whatever query the deck was opened with -- when it is served
+     through /present/?p=<path>, throwing that away would hand out links to a
+     page that no longer knows which deck to load. Only `b` is ours. */
+  var baseUrl = (function () {
+    var u = new URL(location.href);
+    u.hash = '';
+    u.searchParams.set('b', BUILD);
+    return u.toString();
+  })();
+  var base = baseUrl;
   var joinUrl = base + '#join=' + code;
   var remoteUrl = base + '#ctl=' + code + '.' + tok;
 

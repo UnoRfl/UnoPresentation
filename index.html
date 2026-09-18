@@ -46,12 +46,12 @@
   .btn-go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;font-size:15px;padding:14px 26px;border-radius:11px}
   .btn-go:hover{background:#d0444c;border-color:#d0444c;color:#fff}
 
-  /* ── Sign in ─────────────────────────────────────────────── */
-  .gate{max-width:420px;margin:11vh auto 0;text-align:center}
+  /* ── Way in ──────────────────────────────────────────────── */
+  .gate{max-width:430px;margin:11vh auto 0;text-align:center}
   .gate p{color:var(--mute);font-size:15px;line-height:1.6}
   .gate form{display:flex;gap:8px;margin-top:22px}
   .gate input{flex:1;min-width:0}
-  input[type=email]{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:11px 13px;color:var(--ink);font:inherit;font-size:14px}
+  input[type=password],input[type=text]{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:11px 13px;color:var(--ink);font:inherit;font-size:14px}
   input:focus{outline:none;border-color:var(--accent)}
 
   /* ── Now presenting ──────────────────────────────────────── */
@@ -92,18 +92,6 @@
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:50;background:#1E1E24;border:1px solid var(--line2);border-radius:10px;padding:12px 18px;font-size:14px;box-shadow:0 14px 40px rgba(0,0,0,.5);max-width:calc(100vw - 32px)}
   .toast.err{border-color:var(--accent);color:#FFD9DB}
   .hide{display:none!important}
-
-  /* ── Rescue: a link that landed on the wrong host ─────────── */
-  .rescue{margin-top:20px;text-align:left;border:1px solid var(--line);border-radius:11px;background:var(--panel2);padding:0 14px}
-  .rescue summary{cursor:pointer;color:var(--mute);font-size:13px;padding:12px 0;list-style:none}
-  .rescue summary::-webkit-details-marker{display:none}
-  .rescue summary:before{content:'+ ';color:var(--accent);font-weight:700}
-  .rescue[open] summary:before{content:'– '}
-  .rescue summary:hover{color:var(--ink)}
-  .rescue p{font-size:12.5px;color:var(--dim);line-height:1.6;margin:0 0 12px}
-  .rescue form{display:flex;gap:8px;margin:0 0 14px}
-  .rescue input{flex:1;min-width:0;background:#0C0C0E;border:1px solid var(--line);border-radius:9px;padding:10px 12px;color:var(--ink);font:inherit;font-size:12.5px}
-  .rescue input:focus{outline:none;border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -116,36 +104,19 @@
       <h1>Presentations</h1>
     </div>
     <div class="who hide" id="who">
-      <span id="whoEmail"></span>
-      <button class="btn btn-quiet" id="signOut">Sign out</button>
+      <button class="btn btn-quiet" id="signOut">Lock</button>
     </div>
   </header>
 
-  <!-- Sign in -->
+  <!-- Way in -->
   <section class="gate hide" id="gate">
-    <div class="eyebrow" style="letter-spacing:.24em">SIGN IN</div>
-    <p style="margin-top:14px">Your decks live here. Enter your email and you get a link straight
-      back to this page — no password.</p>
+    <div class="eyebrow" style="letter-spacing:.24em" id="gateKicker">SIGN IN</div>
+    <p style="margin-top:14px" id="gateBlurb">Checking…</p>
     <form id="gateForm">
-      <input type="email" id="email" placeholder="you@example.com" autocomplete="email" required>
-      <button class="btn btn-go" style="font-size:13px;padding:11px 16px" type="submit">Send link</button>
+      <input type="password" id="pass" placeholder="Passphrase" autocomplete="current-password" required>
+      <button class="btn btn-go" style="font-size:13px;padding:11px 16px" type="submit" id="gateBtn">Open</button>
     </form>
     <p id="gateMsg" style="margin-top:16px;font-size:13.5px"></p>
-
-    <details class="rescue" id="rescue">
-      <summary>Link sent you to <code>localhost:3000</code>?</summary>
-      <p>That is Supabase's default address, not a fault in the link — the sign-in is still
-         in it. Copy the whole address from that page and paste it here.</p>
-      <form id="rescueForm">
-        <input type="text" id="pasted" placeholder="localhost:3000/#access_token=…" spellcheck="false">
-        <button class="btn" type="submit">Sign me in</button>
-      </form>
-      <p id="rescueMsg"></p>
-    </details>
-
-    <p style="margin-top:20px;font-size:12.5px;color:var(--dim);line-height:1.6">
-      The link works once and expires after an hour. If it fails, just send another.
-    </p>
   </section>
 
   <!-- Dashboard -->
@@ -169,318 +140,292 @@
   </section>
 </div>
 
-<script type="module">
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+<script>
+/* No Supabase Auth, no email, no redirects, nothing to configure. This is one
+   person's dashboard, opened with a passphrase they choose the first time.
+   Every write goes through the deck-admin edge function, which holds the
+   service role -- the tables and the bucket stay shut to the browser. */
+var SUPABASE = 'https://wbmzoscwlaanwtiloufs.supabase.co';
+var FN = SUPABASE + '/functions/v1/deck-admin';
+var PRESENT = location.origin + location.pathname.replace(/[^/]*$/, '') + 'present/';
+var STORE = 'unopresentation.key';
 
-const SUPABASE_URL = 'https://wbmzoscwlaanwtiloufs.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndibXpvc2N3bGFhbnd0aWxvdWZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1NzI1MzgsImV4cCI6MjEwNTE0ODUzOH0.4tyil0h-VK4Ezg26XtZQhuxvHIrKewrMYTmqt3CaQ6o';
-const BUCKET = 'decks';
-
-const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
-const $ = (s) => document.querySelector(s);
+var $ = function (s) { return document.querySelector(s); };
+var key = null;
+var claimed = false;
 
 function toast(msg, isErr) {
-  const t = document.createElement('div');
+  var t = document.createElement('div');
   t.className = 'toast' + (isErr ? ' err' : '');
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), isErr ? 7000 : 3200);
+  setTimeout(function () { t.remove(); }, isErr ? 7000 : 3200);
 }
-const fmtSize = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
-const fmtWhen = (iso) => {
-  const d = new Date(iso), diff = (Date.now() - d) / 1000;
+function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'; }
+function fmtWhen(iso) {
+  var d = new Date(iso), diff = (Date.now() - d) / 1000;
   if (diff < 60) return 'just now';
   if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
   if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
   if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
   return d.toLocaleDateString();
-};
-const slugify = (s) => s.toLowerCase().replace(/\.html?$/, '').replace(/[^a-z0-9]+/g, '-')
-  .replace(/^-|-$/g, '').slice(0, 48) || 'deck';
-const publicUrl = (p) => sb.storage.from(BUCKET).getPublicUrl(p).data.publicUrl;
-const present = (d) => window.open(publicUrl(d.path) + '#live', '_blank', 'noopener');
-
-/* ── Auth ─────────────────────────────────────────────────── */
-let user = null;
-
-function readAuthError() {
-  const h = new URLSearchParams(location.hash.replace(/^#/, ''));
-  const code = h.get('error_code'), desc = h.get('error_description');
-  if (!code && !desc) return null;
-  history.replaceState(null, '', location.pathname);
-  if (code === 'otp_expired') return 'That link had already been used or had expired. Send a fresh one.';
-  return (desc || code || '').replace(/\+/g, ' ');
 }
 
+/* Decks are served from here, not from Supabase: Supabase rewrites HTML to
+   text/plain and attaches a sandbox CSP, so a deck opened on its domain would
+   never run. See present/index.html. */
+function deckUrl(d) { return PRESENT + '?p=' + encodeURIComponent(d.path); }
+
+async function api(action, body) {
+  var headers = { 'Content-Type': 'application/json' };
+  if (key) headers['x-deck-key'] = key;
+  var payload = Object.assign({ action: action }, body || {});
+  var res = await fetch(FN, { method: 'POST', headers: headers, body: JSON.stringify(payload) });
+  var out = {};
+  try { out = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(out.error || ('Request failed (' + res.status + ')'));
+  return out;
+}
+
+/* ── Way in ───────────────────────────────────────────────── */
 async function boot() {
-  const err = readAuthError();
-  if (err) $('#gateMsg').innerHTML = '<span style="color:var(--accent)">' + err + '</span>';
-  const { data } = await sb.auth.getSession();
-  setUser(data.session?.user || null);
-  sb.auth.onAuthStateChange((_e, s) => setUser(s?.user || null));
-}
-
-function setUser(u) {
-  const was = user?.id;
-  user = u;
-  $('#gate').classList.toggle('hide', !!u);
-  $('#app').classList.toggle('hide', !u);
-  $('#who').classList.toggle('hide', !u);
-  if (u) {
-    $('#whoEmail').textContent = u.email || 'signed in';
-    if (was !== u.id) refresh();
-  }
-}
-
-$('#gateForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const email = $('#email').value.trim();
-  if (!email) return;
-  $('#gateMsg').textContent = 'Sending…';
-  const { error } = await sb.auth.signInWithOtp({
-    email, options: { emailRedirectTo: 'https://unorfl.github.io/UnoPresentation/' }
-  });
-  $('#gateMsg').innerHTML = error
-    ? '<span style="color:var(--accent)">' + error.message + '</span>'
-    : 'Check <b>' + email + '</b> for a link. Open it on this device.';
-});
-
-/* Supabase redirects to its configured Site URL, and if that is still the
-   default the link lands on localhost:3000 with nothing listening. The sign-in
-   itself is fine -- the tokens are right there in the fragment -- so rather
-   than make a dashboard setting the only way in, accept the pasted address and
-   finish the job here. */
-$('#rescueForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const msg = $('#rescueMsg');
-  const raw = $('#pasted').value.trim();
-  const frag = raw.slice(raw.indexOf('#') + 1);
-  const q = new URLSearchParams(frag);
-  const access_token = q.get('access_token'), refresh_token = q.get('refresh_token');
-  if (!access_token || !refresh_token) {
-    msg.innerHTML = '<span style="color:var(--accent)">That address has no sign-in on it. Copy the whole thing, starting at <code>localhost</code>.</span>';
+  try {
+    var st = await api('status');
+    claimed = !!st.claimed;
+  } catch (e) {
+    $('#gate').classList.remove('hide');
+    $('#gateBlurb').textContent = 'Could not reach the server.';
+    $('#gateMsg').innerHTML = '<span style="color:var(--accent)">' + e.message + '</span>';
     return;
   }
-  msg.textContent = 'Signing in…';
-  /* A half-copied address gives a malformed JWT, and setSession *rejects* on
-     that ("Invalid UTF-8 sequence") rather than returning an error -- so
-     without the catch the await throws and this is left reading "Signing in…"
-     for good. The timeout is the separate case of a request that never lands. */
-  const friendly = 'That did not work. The link may have expired, or the address was cut short — send a fresh link and copy the whole thing.';
-  let error = null;
-  try {
-    const out = await Promise.race([
-      sb.auth.setSession({ access_token, refresh_token }),
-      new Promise((r) => setTimeout(() => r({ error: { message: friendly } }), 12000))
-    ]);
-    error = out && out.error;
-  } catch (err) {
-    error = { message: friendly };
+
+  $('#gateKicker').textContent = claimed ? 'SIGN IN' : 'FIRST TIME';
+  $('#gateBlurb').textContent = claimed
+    ? 'Enter your passphrase to get to your decks.'
+    : 'Nobody has set this up yet. Choose a passphrase — it is the only thing that opens this page, so make it a real one.';
+  $('#pass').setAttribute('autocomplete', claimed ? 'current-password' : 'new-password');
+  $('#gateBtn').textContent = claimed ? 'Open' : 'Set it';
+
+  var saved = null;
+  try { saved = localStorage.getItem(STORE); } catch (e) {}
+  if (claimed && saved) {
+    key = saved;
+    try {
+      await refresh();
+      show(true);
+      return;
+    } catch (e) {
+      key = null;
+      try { localStorage.removeItem(STORE); } catch (e2) {}
+    }
   }
-  if (error) {
-    msg.innerHTML = '<span style="color:var(--accent)">' + error.message + '</span>';
-  } else {
-    msg.textContent = '';
-    $('#pasted').value = '';
-    $('#rescue').open = false;
-    toast('Signed in');
+  show(false);
+}
+
+function show(inside) {
+  $('#gate').classList.toggle('hide', inside);
+  $('#app').classList.toggle('hide', !inside);
+  $('#who').classList.toggle('hide', !inside);
+}
+
+$('#gateForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var pass = $('#pass').value;
+  if (!pass) return;
+  $('#gateMsg').textContent = 'One moment…';
+  try {
+    if (!claimed) { await api('claim', { passphrase: pass }); claimed = true; }
+    key = pass;
+    await refresh();
+    try { localStorage.setItem(STORE, pass); } catch (e2) {}
+    $('#gateMsg').textContent = '';
+    $('#pass').value = '';
+    show(true);
+  } catch (err) {
+    key = null;
+    $('#gateMsg').innerHTML = '<span style="color:var(--accent)">' + err.message + '</span>';
   }
 });
 
-$('#signOut').addEventListener('click', async () => {
-  await sb.auth.signOut();
-  $('#list').innerHTML = ''; $('#hero').innerHTML = '';
+$('#signOut').addEventListener('click', function () {
+  key = null;
+  try { localStorage.removeItem(STORE); } catch (e) {}
+  $('#list').innerHTML = '';
+  $('#hero').innerHTML = '';
+  show(false);
 });
 
 /* ── Read a deck before storing it ────────────────────────────
    Uploading a file nobody has looked at is how a dashboard ends up serving
-   something that is not a deck. Parse it, count the artboards, and say
-   plainly whether the live layer is inside. */
+   something that is not a deck. */
 async function inspect(file) {
-  const text = await file.text();
-  const doc = new DOMParser().parseFromString(text, 'text/html');
-  const title = (doc.querySelector('title')?.textContent || '').trim();
+  var text = await file.text();
+  var doc = new DOMParser().parseFromString(text, 'text/html');
+  var titleEl = doc.querySelector('title');
+  var title = (titleEl ? titleEl.textContent : '').trim();
   // Slides ride inside the bundler template, invisible to DOMParser, so the
   // raw source is the reliable count.
-  const slides = Math.max(
+  var slides = Math.max(
     doc.querySelectorAll('section[data-label]').length,
     (text.match(/<section[^>]*\sdata-label=/g) || []).length
   );
   return {
-    text, title, slides, size: file.size,
+    text: text, title: title, slides: slides, size: file.size,
     hasDeck: /deck-stage/.test(text),
     hasLive: /lv-stage-panel|__liveHash/.test(text)
   };
 }
 
 async function upload(files) {
-  const bar = $('#upBar'), fill = bar.querySelector('i');
+  var bar = $('#upBar'), fill = bar.querySelector('i');
   bar.classList.remove('hide');
-  let done = 0, firstId = null;
+  var done = 0;
 
-  for (const file of files) {
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
     fill.style.width = Math.round((done / files.length) * 100) + '%';
     try {
-      if (!/\.html?$/i.test(file.name)) { toast(file.name + ' is not an HTML file', true); continue; }
-      const info = await inspect(file);
-      if (!info.hasDeck) { toast(file.name + ' does not look like a deck', true); continue; }
+      if (!/\.html?$/i.test(file.name)) { toast(file.name + ' is not an HTML file', true); done++; continue; }
+      var info = await inspect(file);
+      if (!info.hasDeck) { toast(file.name + ' does not look like a deck', true); done++; continue; }
+      var name = info.title || file.name.replace(/\.html?$/i, '');
 
-      const name = info.title || file.name.replace(/\.html?$/i, '');
-      const slug = slugify(name);
-      const path = `${user.id}/${slug}-${Date.now().toString(36)}.html`;
+      // The function signs it; the file goes straight to storage from here, so
+      // a 300KB deck never travels through the function.
+      var sign = await api('sign-upload', { name: name });
+      var put = await fetch(
+        SUPABASE + '/storage/v1/object/upload/sign/decks/' + sign.path + '?token=' + encodeURIComponent(sign.token),
+        { method: 'PUT', headers: { 'Content-Type': 'text/html' }, body: new Blob([info.text], { type: 'text/html' }) }
+      );
+      if (!put.ok) throw new Error('Upload failed (' + put.status + ')');
 
-      const { error: upErr } = await sb.storage.from(BUCKET)
-        .upload(path, new Blob([info.text], { type: 'text/html' }),
-                { contentType: 'text/html', cacheControl: '60', upsert: false });
-      if (upErr) throw upErr;
-
-      const { data: row, error: rowErr } = await sb.from('decks').insert({
-        slug, name, path, size_bytes: info.size, slides: info.slides,
+      await api('register', {
+        name: name, path: sign.path, size_bytes: info.size, slides: info.slides,
         notes: info.hasLive ? null : 'no-live-layer'
-      }).select('id').single();
-      if (rowErr) { await sb.storage.from(BUCKET).remove([path]); throw rowErr; }
+      });
 
-      firstId = firstId || row.id;
-      toast(`${name} added — ${info.slides} slide${info.slides === 1 ? '' : 's'}`);
-      if (!info.hasLive) toast(`${name} has no live layer: it presents, but phones cannot follow it`, true);
+      toast(name + ' added — ' + info.slides + (info.slides === 1 ? ' slide' : ' slides'));
+      if (!info.hasLive) toast(name + ' has no live layer: it presents, but phones cannot follow it', true);
     } catch (err) {
       toast((err.message || String(err)).slice(0, 180), true);
     }
     done++;
   }
   fill.style.width = '100%';
-  setTimeout(() => { bar.classList.add('hide'); fill.style.width = '0'; }, 400);
-
-  // A first upload with nothing else set should just be ready to go.
-  if (firstId) {
-    const { data } = await sb.from('decks').select('id').eq('is_active', true);
-    if (!data || !data.length) await sb.rpc('set_active_deck', { deck_id: firstId });
-  }
+  setTimeout(function () { bar.classList.add('hide'); fill.style.width = '0'; }, 400);
   refresh();
 }
 
 /* ── Render ───────────────────────────────────────────────── */
 async function refresh() {
-  const { data, error } = await sb.from('decks').select('*')
-    .order('is_active', { ascending: false })
-    .order('updated_at', { ascending: false });
-  if (error) { toast(error.message, true); return; }
-  const decks = data || [];
-  const active = decks.find(d => d.is_active) || null;
+  var out = await api('list');
+  var decks = out.decks || [];
+  var active = decks.filter(function (d) { return d.is_active; })[0] || null;
   renderHero(active);
-  renderList(active ? decks.filter(d => d.id !== active.id) : decks, decks.length);
+  renderList(active ? decks.filter(function (d) { return d.id !== active.id; }) : decks, decks.length);
 }
 
 /* The hero is re-rendered on every refresh, so its handler is bound once to
-   the container and reads whichever deck is current at click time. Binding
-   per render would stack listeners; binding with {once} would be spent by the
-   first click on any dead space inside it. */
-let activeDeck = null;
-$('#hero').addEventListener('click', (e) => { if (activeDeck) act(e, activeDeck); });
+   the container and reads whichever deck is current at click time. */
+var activeDeck = null;
+$('#hero').addEventListener('click', function (e) { if (activeDeck) act(e, activeDeck); });
 
 function renderHero(d) {
   activeDeck = d;
-  const hero = $('#hero');
+  var hero = $('#hero');
   if (!d) {
-    hero.innerHTML = `<div class="hero hero-none">
-      <div class="hero-k" style="color:var(--dim)">NOW PRESENTING</div>
-      <p class="hero-name">Nothing set yet — pick a deck below.</p>
-    </div>`;
+    hero.innerHTML = '<div class="hero hero-none"><div class="hero-k" style="color:var(--dim)">NOW PRESENTING</div>' +
+      '<p class="hero-name">Nothing set yet — pick a deck below.</p></div>';
     return;
   }
-  hero.innerHTML = `<div class="hero">
-    <div class="hero-k">NOW PRESENTING</div>
-    <p class="hero-name"></p>
-    <div class="hero-meta">
-      <span>${d.slides || '?'} slides</span>
-      <span>${d.size_bytes ? fmtSize(d.size_bytes) : ''}</span>
-      <span>updated ${fmtWhen(d.updated_at)}</span>
-      ${d.notes === 'no-live-layer' ? '<span class="tag tag-warn">no live layer</span>' : ''}
-    </div>
-    <div class="hero-acts">
-      <button class="btn btn-go" data-act="present">Start presenting</button>
-      <button class="btn" data-act="open">Open</button>
-      <button class="btn" data-act="link">Copy audience link</button>
-    </div>
-    <p class="hero-hint">Opens on this screen — then press <b>L</b> for the QR codes.</p>
-  </div>`;
+  hero.innerHTML = '<div class="hero"><div class="hero-k">NOW PRESENTING</div>' +
+    '<p class="hero-name"></p>' +
+    '<div class="hero-meta"><span>' + (d.slides || '?') + ' slides</span>' +
+    '<span>' + (d.size_bytes ? fmtSize(d.size_bytes) : '') + '</span>' +
+    '<span>updated ' + fmtWhen(d.updated_at) + '</span>' +
+    (d.notes === 'no-live-layer' ? '<span class="tag tag-warn">no live layer</span>' : '') +
+    '</div><div class="hero-acts">' +
+    '<button class="btn btn-go" data-act="present">Start presenting</button>' +
+    '<button class="btn" data-act="open">Open</button>' +
+    '<button class="btn" data-act="link">Copy audience link</button></div>' +
+    '<p class="hero-hint">Opens on this screen — then press <b>L</b> for the QR codes.</p></div>';
   hero.querySelector('.hero-name').textContent = d.name;
 }
 
 function renderList(decks, total) {
-  const list = $('#list');
+  var list = $('#list');
   list.innerHTML = '';
   $('#empty').classList.toggle('hide', total > 0);
   $('#allHead').classList.toggle('hide', decks.length === 0);
 
-  for (const d of decks) {
-    const el = document.createElement('div');
+  decks.forEach(function (d) {
+    var el = document.createElement('div');
     el.className = 'deck';
-    el.innerHTML = `
-      <div class="deck-main">
-        <div class="deck-name"></div>
-        <div class="deck-meta">
-          <span>${d.slides || '?'} slides</span>
-          <span>updated ${fmtWhen(d.updated_at)}</span>
-          ${d.notes === 'no-live-layer' ? '<span class="tag tag-warn">no live layer</span>' : ''}
-        </div>
-      </div>
-      <div class="deck-acts">
-        <button class="btn" data-act="activate">Make this the one</button>
-        <button class="btn btn-quiet" data-act="present">Present</button>
-        <button class="btn btn-quiet" data-act="rename">Rename</button>
-        <button class="btn btn-quiet btn-danger" data-act="delete">Delete</button>
-      </div>`;
+    el.innerHTML = '<div class="deck-main"><div class="deck-name"></div>' +
+      '<div class="deck-meta"><span>' + (d.slides || '?') + ' slides</span>' +
+      '<span>updated ' + fmtWhen(d.updated_at) + '</span>' +
+      (d.notes === 'no-live-layer' ? '<span class="tag tag-warn">no live layer</span>' : '') +
+      '</div></div><div class="deck-acts">' +
+      '<button class="btn" data-act="activate">Make this the one</button>' +
+      '<button class="btn btn-quiet" data-act="present">Present</button>' +
+      '<button class="btn btn-quiet" data-act="rename">Rename</button>' +
+      '<button class="btn btn-quiet btn-danger" data-act="delete">Delete</button></div>';
     el.querySelector('.deck-name').textContent = d.name;
-    el.addEventListener('click', (e) => act(e, d));
+    el.addEventListener('click', function (e) { act(e, d); });
     list.appendChild(el);
-  }
+  });
 }
 
 async function act(e, d) {
-  const a = e.target.getAttribute && e.target.getAttribute('data-act');
+  var a = e.target.getAttribute && e.target.getAttribute('data-act');
   if (!a) return;
-
-  if (a === 'present') return present(d);
-  if (a === 'open') return window.open(publicUrl(d.path), '_blank', 'noopener');
-  if (a === 'link') {
-    try { await navigator.clipboard.writeText(publicUrl(d.path)); toast('Link copied'); }
-    catch { toast(publicUrl(d.path)); }
-    return;
-  }
-  if (a === 'activate') {
-    const { error } = await sb.rpc('set_active_deck', { deck_id: d.id });
-    if (error) toast(error.message, true); else { toast(d.name + ' is up next'); refresh(); }
-    return;
-  }
-  if (a === 'rename') {
-    const next = prompt('Name this presentation', d.name);
-    if (next == null) return;
-    const t = next.trim();
-    if (!t || t === d.name) return;
-    const { error } = await sb.from('decks').update({ name: t, slug: slugify(t) }).eq('id', d.id);
-    if (error) toast(error.message, true); else { toast('Renamed'); refresh(); }
-    return;
-  }
-  if (a === 'delete') {
-    if (!confirm(`Delete "${d.name}"?\n\nThe file goes for good and any link to it stops working.`)) return;
-    const { error } = await sb.from('decks').delete().eq('id', d.id);
-    if (error) { toast(error.message, true); return; }
-    await sb.storage.from(BUCKET).remove([d.path]);
-    toast('Deleted');
-    refresh();
+  try {
+    if (a === 'present') { window.open(deckUrl(d) + '#live', '_blank', 'noopener'); return; }
+    if (a === 'open') { window.open(deckUrl(d), '_blank', 'noopener'); return; }
+    if (a === 'link') {
+      try { await navigator.clipboard.writeText(deckUrl(d)); toast('Link copied'); }
+      catch (e2) { toast(deckUrl(d)); }
+      return;
+    }
+    if (a === 'activate') { await api('activate', { id: d.id }); toast(d.name + ' is up next'); await refresh(); return; }
+    if (a === 'rename') {
+      var next = prompt('Name this presentation', d.name);
+      if (next == null) return;
+      var t = next.trim();
+      if (!t || t === d.name) return;
+      await api('rename', { id: d.id, name: t });
+      toast('Renamed');
+      await refresh();
+      return;
+    }
+    if (a === 'delete') {
+      if (!confirm('Delete "' + d.name + '"?\n\nThe file goes for good and any link to it stops working.')) return;
+      await api('delete', { id: d.id });
+      toast('Deleted');
+      await refresh();
+      return;
+    }
+  } catch (err) {
+    toast((err.message || String(err)).slice(0, 180), true);
   }
 }
 
 /* ── Drop zone ────────────────────────────────────────────── */
-const drop = $('#drop'), fileInput = $('#file');
-drop.addEventListener('click', () => fileInput.click());
-drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
-fileInput.addEventListener('change', () => { if (fileInput.files.length) upload([...fileInput.files]); fileInput.value = ''; });
-['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
-['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', (e) => {
-  const files = [...(e.dataTransfer?.files || [])];
+var drop = $('#drop'), fileInput = $('#file');
+drop.addEventListener('click', function () { fileInput.click(); });
+drop.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+fileInput.addEventListener('change', function () {
+  if (fileInput.files.length) upload([].slice.call(fileInput.files));
+  fileInput.value = '';
+});
+['dragenter', 'dragover'].forEach(function (ev) {
+  drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+});
+['dragleave', 'drop'].forEach(function (ev) {
+  drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+});
+drop.addEventListener('drop', function (e) {
+  var files = e.dataTransfer ? [].slice.call(e.dataTransfer.files) : [];
   if (files.length) upload(files);
 });
 

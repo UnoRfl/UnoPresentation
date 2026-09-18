@@ -8,9 +8,13 @@ slide you are on right now — when you advance, their screens advance. Scan the
 yourself and your phone becomes the remote: next and back, your speaker notes at full size, a
 running timer, and a pointer you drag with your thumb.
 
-**Dashboard:** https://unorfl.github.io/UnoPresentation/ — sign in, and every deck you have
-uploaded is there. One is marked *now presenting*; hit **Start presenting** and it opens ready
-to go. `…/dashboard` lands in the same place.
+**Dashboard:** https://unorfl.github.io/UnoPresentation/ — one passphrase, chosen the first
+time you open it. Every deck you have uploaded is there, one marked *now presenting*; hit
+**Start presenting** and it opens ready to go. `…/dashboard` lands in the same place.
+
+Decks are uploaded to Supabase Storage but served from `present/` here, because Supabase will
+not serve a working page from its own domain: it rewrites HTML to `text/plain` and attaches
+`Content-Security-Policy: default-src 'none'; sandbox`, so nothing in the deck would run.
 
 **The demo deck:** https://unorfl.github.io/UnoPresentation/demo/
 
